@@ -1,42 +1,65 @@
-from fastapi import FastAPI
+"""
+main.py
+───────
+Application entry point.
+Initialises the database on startup and wires all micro-service routers.
+"""
+
+from dotenv import load_dotenv
+load_dotenv()
+
+from fastapi import FastAPI, Depends
 from database import init_db
-from routers import auth
-from auth_utils import require_role, get_current_user
-from fastapi import Depends
+from Auth import router as auth_router
+from Auth_utils import get_current_user
+from routers import config_snapshot
+from routers import data_conversion
+from routers import payroll
+from routers import bip_integration
 
-app = FastAPI(title="Role-Based Auth API", version="1.0.0")
+app = FastAPI(
+    title="ERPsols API",
+    version="1.0.0",
+    description="Enterprise Resource Planning – Micro-service Backend",
+)
 
+
+# ── Lifecycle ──────────────────────────────────────────────────────────────────
 
 @app.on_event("startup")
 def on_startup():
     init_db()
 
 
-# ── Auth Routes ────────────────────────────────────────────────────────────────
-app.include_router(auth.router)
+# ── Routers ────────────────────────────────────────────────────────────────────
+
+# Auth (signup / login)
+app.include_router(auth_router)
+
+# Config Snapshot micro-service (enterprise + admin only)
+app.include_router(config_snapshot.router)
+
+# Data Conversion micro-service (enterprise + admin only)
+app.include_router(data_conversion.router)
+
+# Payroll Reconciliation micro-service (enterprise + admin only)
+app.include_router(payroll.router)
+
+# BIP Reporting micro-service (enterprise + admin only)
+app.include_router(bip_integration.router)
 
 
-# ── Protected Route Examples ───────────────────────────────────────────────────
+# ── Health Check ───────────────────────────────────────────────────────────────
 
-@app.get("/me")
+@app.get("/health", tags=["Health"])
+def health_check():
+    """Simple liveness probe."""
+    return {"status": "ok"}
+
+
+# ── Authenticated Identity ─────────────────────────────────────────────────────
+
+@app.get("/me", tags=["Identity"])
 def get_me(current_user: dict = Depends(get_current_user)):
-    """Any logged-in user can access this."""
+    """Returns the decoded JWT payload for the currently authenticated user."""
     return current_user
-
-
-@app.get("/admin/dashboard")
-def admin_dashboard(current_user: dict = Depends(require_role("admin"))):
-    """Only admins."""
-    return {"message": "Welcome, Admin!", "user": current_user}
-
-
-@app.get("/enterprise/dashboard")
-def enterprise_dashboard(current_user: dict = Depends(require_role("enterprise", "admin"))):
-    """Enterprise users and admins."""
-    return {"message": "Welcome, Enterprise!", "user": current_user}
-
-
-@app.get("/user/dashboard")
-def user_dashboard(current_user: dict = Depends(require_role("user", "enterprise", "admin"))):
-    """All roles."""
-    return {"message": "Welcome, User!", "user": current_user}
