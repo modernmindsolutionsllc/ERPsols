@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     create_engine,
+    Boolean,
     Column,
     Integer,
     String,
@@ -84,9 +85,14 @@ class User(Base):
     is_active     = Column(Integer, nullable=False, default=1)
     created_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
-    # ── OTP fields (for upcoming auth refactor) ────────────────────────────────
+    # ── OTP fields ─────────────────────────────────────────────────────────────
     otp_code       = Column(String, nullable=True)
     otp_expires_at = Column(DateTime, nullable=True)
+
+    # ── ACP fields (Admin Control Panel) ───────────────────────────────────────
+    total_active_seconds = Column(Integer, nullable=False, default=0)
+    is_restricted        = Column(Boolean, nullable=False, default=False)
+    last_active_at       = Column(DateTime(timezone=True), nullable=True)
 
     role_rel        = relationship("Role", back_populates="users")
     snapshots       = relationship("ConfigSnapshot", back_populates="owner")
@@ -177,8 +183,15 @@ def init_db():
         )
     """)
 
-    # --- Add OTP columns to existing users table (safe migration) ──────────────
-    for col_name, col_type in [("otp_code", "TEXT"), ("otp_expires_at", "DATETIME")]:
+    # --- Add new columns to existing users table (safe migration) ──────────────
+    _migration_cols = [
+        ("otp_code",             "TEXT"),
+        ("otp_expires_at",       "DATETIME"),
+        ("total_active_seconds", "INTEGER DEFAULT 0"),
+        ("is_restricted",        "INTEGER DEFAULT 0"),   # SQLite stores bool as int
+        ("last_active_at",       "DATETIME"),
+    ]
+    for col_name, col_type in _migration_cols:
         try:
             cursor.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
         except sqlite3.OperationalError:

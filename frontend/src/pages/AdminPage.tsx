@@ -1,344 +1,281 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { adminApi } from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
-import { StatusBadge } from '@/components/shared/StatusBadge';
-import { EmptyState } from '@/components/shared/EmptyState';
-import { SkeletonTable } from '@/components/shared/SkeletonTable';
-import { ROLE_COLORS } from '@/utils/constants';
+import { formatActiveTime, formatLastActive } from '@/utils/formatters';
 import { toast } from 'sonner';
-import { hasError } from '@/services/api';
-import type { AdminUser, AuditLogEntry } from '@/types';
+import type { ApiError } from '@/types';
 import {
-  Plus, Shield, Users, CreditCard, ClipboardList, MoreHorizontal, X
+  Search, Users, ShieldAlert, ShieldCheck, Clock, Filter, Loader2, RefreshCw
 } from 'lucide-react';
 
-type AdminTab = 'users' | 'subscription' | 'audit';
+// ── Types for the real backend ACP response ───────────────────────────────────
+
+interface ACPUser {
+  id: number;
+  email: string;
+  username: string;
+  role: string;
+  created_at: string;
+  last_active_at: string | null;
+  total_active_seconds: number;
+  is_restricted: boolean;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString('en-US', {
+      year: 'numeric', month: 'short', day: 'numeric'
+    });
+  } catch { return iso; }
+}
+
+function isApiError(res: unknown): res is ApiError {
+  return typeof res === 'object' && res !== null && 'error' in res;
+}
+
+const ROLE_COLORS: Record<string, string> = {
+  admin: '#6B3FA0',
+  enterprise: '#185FA5',
+  user: '#0F6E56',
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
 
 export function AdminPage() {
-  const [activeTab, setActiveTab] = useState<AdminTab>('users');
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [users, setUsers] = useState<ACPUser[]>([]);
   const [loading, setLoading] = useState(true);
-  const [inviteModal, setInviteModal] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState('Viewer');
-  const [inviting, setInviting] = useState(false);
-  const { user } = useAuth();
+  const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
+  const [toggling, setToggling] = useState<number | null>(null);
+  const { user: currentUser } = useAuth();
+
+  // ── Fetch users from backend ──────────────────────────────────────────────
+
+  const loadUsers = useCallback(async () => {
+    setLoading(true);
+    const res = await adminApi.getUsers(
+      roleFilter || undefined,
+      search || undefined,
+    );
+    if (isApiError(res)) {
+      toast.error(res.error.message);
+      setUsers([]);
+    } else {
+      setUsers(res as ACPUser[]);
+    }
+    setLoading(false);
+  }, [roleFilter, search]);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    loadUsers();
+  }, [loadUsers]);
 
-  async function loadData() {
-    setLoading(true);
-    const [usersRes, auditRes] = await Promise.all([
-      adminApi.getUsers(),
-      adminApi.getAuditLog()
-    ]);
-    setUsers(usersRes.data);
-    setAuditLogs(auditRes.data);
-    setLoading(false);
-  }
+  // ── Debounced search ──────────────────────────────────────────────────────
 
-  async function handleInvite(e: React.FormEvent) {
-    e.preventDefault();
-    setInviting(true);
-    const res = await adminApi.inviteUser(inviteEmail, inviteRole);
-    if (hasError(res)) {
+  const [searchInput, setSearchInput] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(searchInput), 400);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  // ── Kill switch handler ───────────────────────────────────────────────────
+
+  async function handleToggleRestriction(userId: number, currentlyRestricted: boolean) {
+    setToggling(userId);
+    const res = await adminApi.restrictUser(userId, !currentlyRestricted);
+    if (isApiError(res)) {
       toast.error(res.error.message);
     } else {
-      toast.success(`Invite sent to ${inviteEmail}`);
-      setInviteModal(false);
-      setInviteEmail('');
-      loadData();
+      toast.success(res.message);
+      // Optimistic update
+      setUsers(prev => prev.map(u =>
+        u.id === userId ? { ...u, is_restricted: !currentlyRestricted } : u
+      ));
     }
-    setInviting(false);
+    setToggling(null);
   }
 
-  async function handleDeactivate(userId: string) {
-    const res = await adminApi.deactivateUser(userId);
-    if (hasError(res)) {
-      toast.error(res.error.message);
-    } else {
-      toast.success('User deactivated');
-      loadData();
-    }
-  }
+  // ── Stats ─────────────────────────────────────────────────────────────────
 
-  async function handleChangeRole(userId: string, newRole: string) {
-    const res = await adminApi.updateRole(userId, newRole);
-    if (hasError(res)) {
-      toast.error(res.error.message);
-    } else {
-      toast.success(`Role updated to ${newRole}`);
-      loadData();
-    }
-  }
-
-  const tabs = [
-    { id: 'users' as AdminTab, label: 'Users', icon: Users },
-    { id: 'subscription' as AdminTab, label: 'Subscription', icon: CreditCard },
-    { id: 'audit' as AdminTab, label: 'Audit Log', icon: ClipboardList }
-  ];
-
-  const tiers = [
-    {
-      name: 'Viewer',
-      color: '#64748B',
-      price: '$29/mo',
-      features: ['view_dashboard', 'view_reports', 'view_snapshots']
-    },
-    {
-      name: 'Analyst',
-      color: '#185FA5',
-      price: '$79/mo',
-      features: ['...', 'view_payroll', 'run_bip_report']
-    },
-    {
-      name: 'Engineer',
-      color: '#0F6E56',
-      price: '$149/mo',
-      features: ['...', 'run_etl', 'run_reconciliation', 'create_snapshot']
-    },
-    {
-      name: 'Admin',
-      color: '#6B3FA0',
-      price: '$299/mo',
-      features: ['...', 'manage_users', 'view_audit_log', 'change_roles']
-    }
-  ];
+  const totalUsers = users.length;
+  const activeUsers = users.filter(u => !u.is_restricted).length;
+  const restrictedUsers = users.filter(u => u.is_restricted).length;
 
   return (
     <div className="p-6 lg:p-8 max-w-[1400px] mx-auto animate-in fade-in duration-250">
+      {/* Header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-[#0F172A] tracking-tight">Admin</h1>
-        <p className="text-sm text-[#64748B] mt-1">Manage users, subscriptions, and audit trails.</p>
+        <h1 className="text-2xl font-semibold text-[#0F172A] tracking-tight">Admin Control Panel</h1>
+        <p className="text-sm text-[#64748B] mt-1">Manage users, monitor sessions, and enforce access control.</p>
       </div>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-1 mb-6 border-b border-[#E2E8F0]">
-        {tabs.map(tab => {
-          const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`inline-flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors
-                ${isActive
-                  ? 'border-[#185FA5] text-[#185FA5]'
-                  : 'border-transparent text-[#64748B] hover:text-[#0F172A]'
-                }`}
-            >
-              <Icon size={16} />
-              {tab.label}
-            </button>
-          );
-        })}
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div className="bg-white border border-[#E2E8F0] rounded-lg p-5 flex items-center gap-4">
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[#185FA51A] text-[#185FA5]">
+            <Users size={20} />
+          </div>
+          <div>
+            <p className="text-2xl font-semibold text-[#0F172A]">{totalUsers}</p>
+            <p className="text-xs text-[#64748B]">Total Users</p>
+          </div>
+        </div>
+        <div className="bg-white border border-[#E2E8F0] rounded-lg p-5 flex items-center gap-4">
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[#0F6E561A] text-[#0F6E56]">
+            <ShieldCheck size={20} />
+          </div>
+          <div>
+            <p className="text-2xl font-semibold text-[#0F172A]">{activeUsers}</p>
+            <p className="text-xs text-[#64748B]">Active</p>
+          </div>
+        </div>
+        <div className="bg-white border border-[#E2E8F0] rounded-lg p-5 flex items-center gap-4">
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[#993C1D1A] text-[#993C1D]">
+            <ShieldAlert size={20} />
+          </div>
+          <div>
+            <p className="text-2xl font-semibold text-[#0F172A]">{restrictedUsers}</p>
+            <p className="text-xs text-[#64748B]">Restricted</p>
+          </div>
+        </div>
       </div>
 
-      {/* Users Tab */}
-      {activeTab === 'users' && (
-        <div>
-          <div className="flex justify-end mb-4">
-            <button
-              onClick={() => setInviteModal(true)}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-[#6B3FA0] hover:bg-[#553280] text-white text-sm font-medium rounded-md transition-colors"
-            >
-              <Plus size={16} />
-              Invite User
-            </button>
-          </div>
-          <div className="bg-white border border-[#E2E8F0] rounded-lg overflow-hidden">
-            {loading ? (
-              <div className="p-4">
-                <SkeletonTable columns={5} rows={5} />
-              </div>
-            ) : users.length === 0 ? (
-              <EmptyState icon={<Users size={48} />} title="No users found" />
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="bg-[#F3F4F6]">
-                      <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B]">Name</th>
-                      <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B]">Email</th>
-                      <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B]">Role</th>
-                      <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B]">Status</th>
-                      <th className="w-20"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#E2E8F0]">
-                    {users.map(u => (
-                      <tr key={u.id} className="hover:bg-[#EAF2FB] transition-colors">
-                        <td className="px-4 py-3 text-sm font-medium text-[#0F172A]">{u.name}</td>
-                        <td className="px-4 py-3 text-sm text-[#64748B]">{u.email}</td>
-                        <td className="px-4 py-3">
-                          <select
-                            value={u.role}
-                            onChange={e => handleChangeRole(u.id, e.target.value)}
-                            className="text-xs font-medium px-2 py-1 rounded border border-transparent bg-transparent hover:bg-gray-50 cursor-pointer"
-                            style={{ color: ROLE_COLORS[u.role] }}
-                          >
-                            {['Viewer', 'Analyst', 'Engineer', 'Admin'].map(r => (
-                              <option key={r} value={r}>{r}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-4 py-3">
-                          <StatusBadge status={u.status} />
-                        </td>
-                        <td className="px-4 py-3">
-                          {u.status === 'Active' && u.id !== user?.id && (
-                            <button
-                              onClick={() => handleDeactivate(u.id)}
-                              className="p-1.5 hover:bg-gray-100 rounded text-[#64748B] hover:text-[#993C1D] transition-colors"
-                              title="Deactivate"
-                            >
-                              <MoreHorizontal size={16} />
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+      {/* Toolbar: Search + Role Filter + Refresh */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-4">
+        <div className="relative flex-1">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
+          <input
+            type="text"
+            value={searchInput}
+            onChange={e => setSearchInput(e.target.value)}
+            placeholder="Search by email or username…"
+            className="h-10 w-full rounded-md border border-[#CBD5E1] bg-white pl-10 pr-3 text-sm text-[#0F172A] transition-all placeholder:text-[#94A3B8] focus:border-[#185FA5] focus:outline-none focus:ring-4 focus:ring-[#185FA5]/15"
+          />
         </div>
-      )}
 
-      {/* Subscription Tab */}
-      {activeTab === 'subscription' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {tiers.map(tier => (
-            <div
-              key={tier.name}
-              className="bg-white border border-[#E2E8F0] rounded-lg p-6 hover:shadow-md hover:-translate-y-0.5 transition-all duration-150"
-              style={{ borderLeft: `4px solid ${tier.color}` }}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-base font-semibold text-[#0F172A]">{tier.name}</h3>
-                {user?.role === tier.name && (
-                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-[#0F6E561A] text-[#0F6E56]">
-                    Current
-                  </span>
-                )}
-              </div>
-              <div className="text-2xl font-semibold text-[#0F172A] mb-4">{tier.price}</div>
-              <ul className="space-y-2">
-                {tier.features.map((feat, i) => (
-                  <li key={i} className="text-sm text-[#64748B] flex items-center gap-2">
-                    <Shield size={12} style={{ color: tier.color }} />
-                    {feat === '...' ? 'All previous features' : feat}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+        <div className="relative">
+          <Filter size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8] pointer-events-none" />
+          <select
+            value={roleFilter}
+            onChange={e => setRoleFilter(e.target.value)}
+            className="h-10 w-full sm:w-44 rounded-md border border-[#CBD5E1] bg-white pl-9 pr-3 text-sm text-[#0F172A] transition-all focus:border-[#185FA5] focus:outline-none focus:ring-4 focus:ring-[#185FA5]/15 appearance-none cursor-pointer"
+          >
+            <option value="">All Roles</option>
+            <option value="admin">Admin</option>
+            <option value="enterprise">Enterprise</option>
+            <option value="user">User</option>
+          </select>
         </div>
-      )}
 
-      {/* Audit Log Tab */}
-      {activeTab === 'audit' && (
-        <div className="bg-white border border-[#E2E8F0] rounded-lg overflow-hidden">
-          {loading ? (
-            <div className="p-4">
-              <SkeletonTable columns={4} rows={6} />
-            </div>
-          ) : auditLogs.length === 0 ? (
-            <EmptyState icon={<ClipboardList size={48} />} title="No audit entries" />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-[#F3F4F6]">
-                    <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B]">User</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B]">Action</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B]">Timestamp</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B]">Details</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#E2E8F0]">
-                  {auditLogs.map(log => (
-                    <tr key={log.id} className="hover:bg-[#EAF2FB] transition-colors">
-                      <td className="px-4 py-3 text-sm font-medium text-[#0F172A]">{log.user}</td>
+        <button
+          onClick={loadUsers}
+          className="h-10 px-4 rounded-md border border-[#CBD5E1] bg-white text-sm font-medium text-[#334155] hover:bg-[#F8FAFC] transition-colors flex items-center gap-2"
+        >
+          <RefreshCw size={14} />
+          Refresh
+        </button>
+      </div>
+
+      {/* Data Table */}
+      <div className="bg-white border border-[#E2E8F0] rounded-lg overflow-hidden">
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 size={24} className="animate-spin text-[#185FA5]" />
+            <span className="ml-3 text-sm text-[#64748B]">Loading users…</span>
+          </div>
+        ) : users.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-[#64748B]">
+            <Users size={48} strokeWidth={1} className="mb-3 opacity-40" />
+            <p className="text-sm">No users found.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0]">
+                  <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B]">ID</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B]">Email</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B]">Username</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B]">Role</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B]">Joined</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B]">Last Active</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B]">
+                    <span className="flex items-center gap-1"><Clock size={12} /> Active Time</span>
+                  </th>
+                  <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B]">Status</th>
+                  <th className="text-center px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B]">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#E2E8F0]">
+                {users.map(u => {
+                  const isSelf = currentUser?.id === String(u.id);
+                  const roleColor = ROLE_COLORS[u.role] || '#64748B';
+
+                  return (
+                    <tr key={u.id} className="hover:bg-[#F8FAFC] transition-colors">
+                      <td className="px-4 py-3 text-sm font-mono text-[#64748B]">{u.id}</td>
+                      <td className="px-4 py-3 text-sm text-[#0F172A] font-medium">{u.email}</td>
+                      <td className="px-4 py-3 text-sm text-[#334155]">{u.username}</td>
                       <td className="px-4 py-3">
                         <span
-                          className="text-sm font-medium"
-                          style={{ borderLeft: `3px solid ${log.color}`, paddingLeft: 8 }}
+                          className="text-xs font-semibold px-2.5 py-1 rounded-full"
+                          style={{
+                            color: roleColor,
+                            backgroundColor: roleColor + '1A',
+                          }}
                         >
-                          {log.action}
+                          {u.role}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-sm text-[#64748B]">{new Date(log.timestamp).toLocaleString()}</td>
-                      <td className="px-4 py-3 text-sm text-[#64748B]">{log.details}</td>
+                      <td className="px-4 py-3 text-sm text-[#64748B]">{formatDate(u.created_at)}</td>
+                      <td className="px-4 py-3 text-sm text-[#334155] font-medium">{formatLastActive(u.last_active_at)}</td>
+                      <td className="px-4 py-3 text-sm font-mono text-[#334155]">
+                        {formatActiveTime(u.total_active_seconds)}
+                      </td>
+                      <td className="px-4 py-3">
+                        {u.is_restricted ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-[#993C1D1A] text-[#993C1D]">
+                            <ShieldAlert size={12} /> Restricted
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-[#0F6E561A] text-[#0F6E56]">
+                            <ShieldCheck size={12} /> Active
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {isSelf ? (
+                          <span className="text-xs text-[#94A3B8] italic">You</span>
+                        ) : toggling === u.id ? (
+                          <Loader2 size={16} className="animate-spin text-[#64748B] mx-auto" />
+                        ) : u.is_restricted ? (
+                          <button
+                            onClick={() => handleToggleRestriction(u.id, u.is_restricted)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-[#0F6E56] text-white hover:bg-[#0B5C47] transition-colors"
+                          >
+                            <ShieldCheck size={13} />
+                            Unrestrict
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleToggleRestriction(u.id, u.is_restricted)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-[#DC2626] text-white hover:bg-[#B91C1C] transition-colors"
+                          >
+                            <ShieldAlert size={13} />
+                            Restrict
+                          </button>
+                        )}
+                      </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Invite Modal */}
-      {inviteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/45" onClick={() => setInviteModal(false)} />
-          <div className="relative bg-white rounded-xl p-6 w-full max-w-[440px] mx-4 shadow-xl">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-[#0F172A]">Invite User</h2>
-              <button onClick={() => setInviteModal(false)} className="p-1 hover:bg-gray-100 rounded">
-                <X size={18} className="text-[#64748B]" />
-              </button>
-            </div>
-            <form onSubmit={handleInvite} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-[#0F172A] mb-1.5">Email</label>
-                <input
-                  type="email"
-                  value={inviteEmail}
-                  onChange={e => setInviteEmail(e.target.value)}
-                  placeholder="colleague@company.com"
-                  className="w-full h-10 px-3 rounded-md border border-[#E2E8F0] text-sm focus:outline-none focus:border-[#185FA5] focus:ring-3 focus:ring-[rgba(24,95,165,0.15)]"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[#0F172A] mb-1.5">Role</label>
-                <select
-                  value={inviteRole}
-                  onChange={e => setInviteRole(e.target.value)}
-                  className="w-full h-10 px-3 rounded-md border border-[#E2E8F0] text-sm focus:outline-none focus:border-[#185FA5] focus:ring-3 focus:ring-[rgba(24,95,165,0.15)] bg-white"
-                >
-                  <option>Viewer</option>
-                  <option>Analyst</option>
-                  <option>Engineer</option>
-                  <option>Admin</option>
-                </select>
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setInviteModal(false)}
-                  className="px-4 py-2 text-sm font-medium text-[#64748B] hover:bg-gray-50 rounded-md"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={inviting}
-                  className="px-4 py-2 bg-[#6B3FA0] hover:bg-[#553280] text-white text-sm font-medium rounded-md disabled:opacity-50"
-                >
-                  {inviting ? 'Sending...' : 'Send Invite'}
-                </button>
-              </div>
-            </form>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

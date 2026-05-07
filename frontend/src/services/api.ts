@@ -41,6 +41,30 @@ async function requestJson<T>(path: string, options: RequestInit = {}): Promise<
   }
 }
 
+/**
+ * Authenticated request helper — reads JWT from sessionStorage
+ * and attaches it as a Bearer token for all protected endpoints.
+ */
+async function authenticatedJson<T>(path: string, options: RequestInit = {}): Promise<T | ApiError> {
+  let token: string | null = null;
+  try {
+    const saved = sessionStorage.getItem('migrateos_auth');
+    if (saved) token = JSON.parse(saved).token;
+  } catch { /* ignore parse errors */ }
+
+  if (!token) {
+    return mockError('AUTH_ERROR', 'No authentication token found. Please sign in.');
+  }
+
+  return requestJson<T>(path, {
+    ...options,
+    headers: {
+      ...((options.headers as Record<string, string>) || {}),
+      'Authorization': `Bearer ${token}`,
+    },
+  });
+}
+
 export function hasError<T>(res: ApiResponse<T> | ApiError): res is ApiError {
   return 'error' in res && res.error !== undefined;
 }
@@ -399,9 +423,27 @@ export const payrollApi = {
 };
 
 export const adminApi = {
-  async getUsers(): Promise<ApiResponse<AdminUser[]>> {
+  /** Fetch all users from the real backend ACP endpoint */
+  async getUsers(role?: string, search?: string): Promise<AdminUser[] | ApiError> {
+    const params = new URLSearchParams();
+    if (role) params.set('role', role);
+    if (search) params.set('search', search);
+    const qs = params.toString();
+    return authenticatedJson<AdminUser[]>(`/api/v1/admin/users${qs ? '?' + qs : ''}`);
+  },
+
+  /** Admin kill-switch: toggle is_restricted on a user */
+  async restrictUser(userId: number, isRestricted: boolean): Promise<{ message: string } | ApiError> {
+    return authenticatedJson<{ message: string }>(`/api/v1/admin/users/${userId}/restrict`, {
+      method: 'PUT',
+      body: JSON.stringify({ is_restricted: isRestricted }),
+    });
+  },
+
+  // Legacy mock methods kept for compatibility
+  async getAuditLog(): Promise<ApiResponse<AuditLogEntry[]>> {
     await delay(400);
-    return mockResponse(adminUsers);
+    return mockResponse(auditLogs);
   },
 
   async inviteUser(email: string, role: string): Promise<ApiResponse<AdminUser>> {
@@ -429,10 +471,47 @@ export const adminApi = {
     adminUsers = adminUsers.map(u => u.id === userId ? { ...u, status: 'Inactive' as const } : u);
     const user = adminUsers.find(u => u.id === userId);
     return mockResponse(user!);
+  }
+};
+
+/** Session heartbeat — pinged by frontend to track active time */
+export const trackingApi = {
+  async heartbeat(activeSeconds: number): Promise<{ message: string } | ApiError> {
+    return authenticatedJson<{ message: string }>('/api/v1/tracking/heartbeat', {
+      method: 'POST',
+      body: JSON.stringify({ active_seconds: activeSeconds }),
+    });
   },
 
-  async getAuditLog(): Promise<ApiResponse<AuditLogEntry[]>> {
-    await delay(400);
-    return mockResponse(auditLogs);
+  /**
+   * Exit beacon — fires when the user closes/hides the tab.
+   * Uses fetch with `keepalive: true` so the browser completes
+   * the request even after the page unloads. This lets us send
+   * proper Authorization headers (unlike navigator.sendBeacon).
+   */
+  disconnect(): void {
+    let token: string | null = null;
+    try {
+      const saved = sessionStorage.getItem('migrateos_auth');
+      if (saved) token = JSON.parse(saved).token;
+    } catch { /* ignore */ }
+
+    if (!token) return;
+
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8080';
+
+    try {
+      fetch(`${baseUrl}/api/v1/tracking/disconnect`, {
+        method: 'POST',
+        keepalive: true,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({}),
+      });
+    } catch {
+      // Fire-and-forget — never crash the app on exit
+    }
   }
 };

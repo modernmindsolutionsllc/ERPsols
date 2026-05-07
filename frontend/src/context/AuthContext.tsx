@@ -1,11 +1,11 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import type { AuthState, SignupPayload } from '@/types';
+import type { AuthState, SignupPayload, User } from '@/types';
 import { authApi } from '@/services/api';
 import { toast } from 'sonner';
 
 interface AuthContextType extends AuthState {
   requestOtp: (email: string) => Promise<boolean>;
-  verifyOtp: (email: string, otpCode: string) => Promise<boolean>;
+  verifyOtp: (email: string, otpCode: string) => Promise<{ token: string; user: User } | null>;
   signup: (payload: SignupPayload) => Promise<boolean>;
   logout: () => void;
 }
@@ -86,15 +86,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return true;
   }, []);
 
-  const verifyOtp = useCallback(async (email: string, otpCode: string): Promise<boolean> => {
+  const verifyOtp = useCallback(async (email: string, otpCode: string): Promise<{ token: string; user: User } | null> => {
     const result = await authApi.verifyOtp(email, otpCode);
     if ('error' in result) {
       toast.error(result.error.message);
-      return false;
+      return null;
     }
     setState({ user: result.user, token: result.token, isAuthenticated: true });
     toast.success(`Welcome, ${result.user.name}`);
-    return true;
+    return result;
   }, []);
 
   const signup = useCallback(async (payload: SignupPayload): Promise<boolean> => {

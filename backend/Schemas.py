@@ -5,7 +5,7 @@ Pydantic models for request validation and response serialisation.
 """
 
 from pydantic import BaseModel, EmailStr, field_validator
-from typing import Any, Dict, Literal
+from typing import Any, Dict, Literal, Optional
 from datetime import datetime
 
 
@@ -140,3 +140,43 @@ class BIPRequest(BaseModel):
     """
     report_name: str
     parameters: Dict[str, Any]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  ADMIN CONTROL PANEL (ACP) SCHEMAS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class UserAdminResponse(BaseModel):
+    """Full user profile for the Admin Control Panel."""
+    id: int
+    email: str
+    username: str
+    role: str
+    created_at: datetime
+    total_active_seconds: int
+    is_restricted: bool
+    last_active_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class RestrictUserRequest(BaseModel):
+    """Admin kill-switch: toggle a user's restricted status."""
+    is_restricted: bool
+
+
+class HeartbeatRequest(BaseModel):
+    """Frontend pings this every ~60s with the seconds elapsed since last ping."""
+    active_seconds: int
+
+    @field_validator("active_seconds")
+    @classmethod
+    def must_be_positive(cls, v: int) -> int:
+        if v < 0 or v > 300:
+            raise ValueError("active_seconds must be between 0 and 300.")
+        return v
+
+
+class DisconnectRequest(BaseModel):
+    """Beacon payload sent when the user closes the tab."""
+    token: str

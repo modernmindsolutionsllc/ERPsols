@@ -17,6 +17,8 @@ from routers import config_snapshot
 from routers import data_conversion
 from routers import payroll
 from routers import bip_integration
+from routers import admin
+from routers import tracking
 
 app = FastAPI(
     title="ERPsols API",
@@ -61,6 +63,12 @@ app.include_router(payroll.router)
 
 # BIP Reporting micro-service (enterprise + admin only)
 app.include_router(bip_integration.router)
+
+# Admin Control Panel (admin only)
+app.include_router(admin.router)
+
+# Session Tracking (any authenticated user)
+app.include_router(tracking.router)
 
 
 # ── Health Check ───────────────────────────────────────────────────────────────

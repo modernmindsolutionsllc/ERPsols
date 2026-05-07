@@ -22,7 +22,7 @@ const emptySignup: SignupPayload = {
   username: '',
   email: '',
   password: '',
-  role: 'enterprise',
+  role: 'user', // SECURITY: Public signup is always 'user' — admin/enterprise assigned internally
 };
 
 export function LoginPage() {
@@ -56,11 +56,13 @@ export function LoginPage() {
     event.preventDefault();
     setError('');
     setLoading(true);
-    const success = await verifyOtp(email.trim(), otpCode.trim());
+    const result = await verifyOtp(email.trim(), otpCode.trim());
     setLoading(false);
 
-    if (success) {
-      navigate('/dashboard');
+    if (result) {
+      // Role-based redirect: admin → /admin, everyone else → /dashboard
+      const destination = result.user.role === 'admin' ? '/admin' : '/dashboard';
+      navigate(destination);
     } else {
       setError('The code was not accepted. Request a new one if it has expired.');
     }
@@ -291,18 +293,10 @@ export function LoginPage() {
                   </span>
                 </label>
 
-                <label className="block">
-                  <span className="mb-1.5 block text-sm font-medium text-[#0F172A]">Role</span>
-                  <select
-                    value={signupForm.role}
-                    onChange={event => setSignupForm(current => ({ ...current, role: event.target.value as SignupPayload['role'] }))}
-                    className="h-10 w-full rounded-md border border-[#CBD5E1] bg-white px-3 text-sm text-[#0F172A] transition-all focus:border-[#185FA5] focus:outline-none focus:ring-4 focus:ring-[#185FA5]/15"
-                  >
-                    <option value="enterprise">enterprise</option>
-                    <option value="user">user</option>
-                    <option value="admin">admin</option>
-                  </select>
-                </label>
+                {/* SECURITY: Role is hardcoded to 'user' — no public selector */}
+                <p className="text-xs text-[#94A3B8] bg-[#F8FAFC] border border-[#E2E8F0] rounded-md px-3 py-2">
+                  Account will be created with <span className="font-medium text-[#334155]">User</span> role. Contact an admin for elevated access.
+                </p>
 
                 <button
                   type="submit"

@@ -2,6 +2,8 @@ import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { usePermission } from '@/hooks/usePermission';
+import { useSessionHeartbeat } from '@/hooks/useSessionHeartbeat';
+import { SubscribeModal } from '@/components/shared/SubscribeModal';
 import {
   LayoutDashboard, Camera, ArrowRightLeft, BarChart3, Wallet, Shield, LogOut, Menu, X
 } from 'lucide-react';
@@ -22,6 +24,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isAdmin = usePermission('manage_users');
   const [mobileOpen, setMobileOpen] = React.useState(false);
 
+  // Determine if the current user is a base tier "user"
+  const isBaseUser = user?.role === 'user';
+
+  // Global session heartbeat — pings backend every 60s while tab is visible
+  useSessionHeartbeat();
+
   const handleLogout = () => {
     logout();
     navigate('/login');
@@ -39,12 +47,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         />
       )}
 
-      {/* Sidebar */}
-      <aside
-        className={`fixed lg:static inset-y-0 left-0 z-50 w-[240px] bg-[#0F172A] flex flex-col transition-transform duration-250 ease-out
-          ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
-        style={{ transitionTimingFunction: 'cubic-bezier(0.32, 0.72, 0, 1)' }}
-      >
+      {/* Sidebar (Hidden for base users) */}
+      {!isBaseUser && (
+        <aside
+          className={`fixed lg:static inset-y-0 left-0 z-50 w-[240px] bg-[#0F172A] flex flex-col transition-transform duration-250 ease-out
+            ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
+          style={{ transitionTimingFunction: 'cubic-bezier(0.32, 0.72, 0, 1)' }}
+        >
         <div className="h-14 flex items-center px-6 border-b border-white/10 lg:hidden">
           <span className="text-white font-semibold">MigrateOS</span>
           <button
@@ -95,18 +104,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
         </nav>
       </aside>
+      )}
 
       {/* Main content area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* TopBar */}
         <header className="h-14 bg-[#185FA5] flex items-center justify-between px-4 lg:px-6 shadow-sm z-30 sticky top-0">
           <div className="flex items-center gap-3">
-            <button
-              className="lg:hidden text-white/80 hover:text-white"
-              onClick={() => setMobileOpen(true)}
-            >
-              <Menu size={20} />
-            </button>
+            {!isBaseUser && (
+              <button
+                className="lg:hidden text-white/80 hover:text-white"
+                onClick={() => setMobileOpen(true)}
+              >
+                <Menu size={20} />
+              </button>
+            )}
             <div className="w-4 h-4 bg-white rounded-sm" />
             <span className="text-white font-semibold text-base">MigrateOS</span>
           </div>
@@ -140,6 +152,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+
+      {/* Enterprise upsell modal — self-gating, only visible to "user" role */}
+      <SubscribeModal />
     </div>
   );
 }
