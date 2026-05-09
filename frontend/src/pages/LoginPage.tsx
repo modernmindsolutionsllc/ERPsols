@@ -41,13 +41,15 @@ export function LoginPage() {
     event.preventDefault();
     setError('');
     setLoading(true);
-    const success = await requestOtp(email.trim());
+    const result = await requestOtp(email.trim());
     setLoading(false);
 
-    if (success) {
+    if (result === 'sent') {
       setStep('otp');
       setOtpCode('');
-    } else {
+    } else if (result === 'failed') {
+      // Only show the inline banner for genuine failures (wrong email, backend down, etc.)
+      // 'restricted' is handled by the toast in AuthContext — no inline banner needed.
       setError('Could not send the login code. Check the email and backend connection.');
     }
   };
