@@ -1,4 +1,5 @@
 from database import SessionLocal, BipReportConfig
+from routers.integrations import encrypt_password
 
 def seed_database():
     print("Connecting directly to the database...")
@@ -9,14 +10,16 @@ def seed_database():
             module="Finance",
             report_name="Q3_Revenue_Test",
             description="Test query for revenue",
-            sql_query="SELECT 'TEST_DATA' as col1, 1000 as revenue FROM DUAL"
+            sql_query=None,
+            encrypted_sql_query=encrypt_password("SELECT 'TEST_DATA' as col1, 1000 as revenue FROM DUAL"),
         )
         
         test_report_2 = BipReportConfig(
             module="HCM",
             report_name="Employee_Count",
             description="01_Pulls total active employees",
-            sql_query="Select count(person_number) from per_all_people_f"
+            sql_query=None,
+            encrypted_sql_query=encrypt_password("Select count(person_number) from per_all_people_f"),
         )
 
         # Clean up existing test reports

@@ -10,6 +10,7 @@ import {
   Camera,
   ArrowRightLeft,
   BarChart3,
+  LockKeyhole,
   Wallet,
   Shield,
   LogOut,
@@ -156,6 +157,16 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
 
           <div className="flex items-center gap-2.5">
+            {isAdminRole && (
+              <Link
+                to="/bip-reporting/manage"
+                className="hidden sm:inline-flex items-center gap-2 rounded-md border border-white/15 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-white/15"
+              >
+                <LockKeyhole size={14} />
+                BIP Report Manager
+              </Link>
+            )}
+
             <ThemeToggle />
 
             {isBaseUser && (

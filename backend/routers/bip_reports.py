@@ -14,9 +14,16 @@ from sqlalchemy.exc import IntegrityError
 from fastapi.responses import StreamingResponse
 
 from database import get_db, BipReportConfig, OracleCredential
-from dependencies import require_tool_access
-from Schemas import BipReportCreate, BipReportResponse, DirectBipSqlRequest, ExecuteReportsRequest
-from routers.integrations import decrypt_password
+from dependencies import require_admin, require_tool_access
+from Schemas import (
+    BipReportCreate,
+    BipReportManageCreate,
+    BipReportManageResponse,
+    BipReportResponse,
+    DirectBipSqlRequest,
+    ExecuteReportsRequest,
+)
+from routers.integrations import decrypt_password, encrypt_password
 from lib.config_generate import run_sqls_config_generation
 
 router = APIRouter(
@@ -74,36 +81,33 @@ def _decrypt_credential(credential: OracleCredential) -> tuple[str, str, str]:
 
 
 def _effective_sql_text(cfg: BipReportConfig) -> str | None:
-    """Prefer plain-text sql_query; otherwise try Fernet-encrypted_sql_query."""
-    if cfg.sql_query and str(cfg.sql_query).strip():
-        return str(cfg.sql_query).strip()
+    """Use only the encrypted SQL payload for execution."""
     if cfg.encrypted_sql_query:
         try:
             plain = decrypt_password(cfg.encrypted_sql_query).strip()
             return plain or None
-        except Exception:
+        except Exception as exc:
+            _logger.error(f"Failed to decrypt SQL for report_id={cfg.id}: {exc}")
             return None
     return None
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  CRUD
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-@router.post("/", response_model=BipReportResponse, status_code=status.HTTP_201_CREATED)
-def create_bip_report(
-    report_in: BipReportCreate,
-    current_user: dict = Depends(require_tool_access("bip_reporting")),
-    db: Session = Depends(get_db)
-):
-    """Create a new BIP Report configuration."""
+def _create_encrypted_bip_report(
+    db: Session,
+    *,
+    module: str,
+    report_name: str,
+    sql_query: str,
+    sub_module: str | None = None,
+    description: str | None = None,
+) -> BipReportConfig:
     new_report = BipReportConfig(
-        module=report_in.module,
-        sub_module=report_in.sub_module,
-        report_name=report_in.report_name,
-        description=report_in.description,
-        sql_query=report_in.sql_query,
+        module=module,
+        sub_module=sub_module,
+        report_name=report_name,
+        description=description,
+        sql_query=None,
+        encrypted_sql_query=encrypt_password(sql_query),
     )
     db.add(new_report)
     try:
@@ -118,13 +122,78 @@ def create_bip_report(
         )
 
 
+def _to_manage_response(cfg: BipReportConfig) -> BipReportManageResponse:
+    sql_text = _effective_sql_text(cfg)
+    if not sql_text:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Stored SQL for report '{cfg.report_name}' is missing or could not be decrypted.",
+        )
+    return BipReportManageResponse(
+        id=cfg.id,
+        module=cfg.module,
+        report_name=cfg.report_name,
+        sql_query=sql_text,
+        is_active=cfg.is_active,
+        created_at=cfg.created_at,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  CRUD
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@router.post("/", response_model=BipReportResponse, status_code=status.HTTP_201_CREATED)
+def create_bip_report(
+    report_in: BipReportCreate,
+    current_user: dict = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """Create a new encrypted BIP Report configuration."""
+    return _create_encrypted_bip_report(
+        db,
+        module=report_in.module,
+        sub_module=report_in.sub_module,
+        report_name=report_in.report_name,
+        description=report_in.description,
+        sql_query=report_in.sql_query,
+    )
+
+
+@router.post("/manage", response_model=BipReportManageResponse, status_code=status.HTTP_201_CREATED)
+def create_bip_report_manage(
+    report_in: BipReportManageCreate,
+    current_user: dict = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """Create a new encrypted BIP Report configuration for private admin management."""
+    created = _create_encrypted_bip_report(
+        db,
+        module=report_in.module,
+        report_name=report_in.report_name,
+        sql_query=report_in.sql_query,
+    )
+    return _to_manage_response(created)
+
+
 @router.get("/", response_model=List[BipReportResponse])
 def list_bip_reports(
     current_user: dict = Depends(require_tool_access("bip_reporting")),
     db: Session = Depends(get_db)
 ):
     """List all stored BIP report configurations."""
-    return db.query(BipReportConfig).all()
+    return db.query(BipReportConfig).order_by(BipReportConfig.created_at.desc()).all()
+
+
+@router.get("/manage", response_model=List[BipReportManageResponse])
+def list_bip_reports_manage(
+    current_user: dict = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """List all stored BIP report configurations with decrypted SQL for private admin management."""
+    configs = db.query(BipReportConfig).order_by(BipReportConfig.created_at.desc()).all()
+    return [_to_manage_response(cfg) for cfg in configs]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

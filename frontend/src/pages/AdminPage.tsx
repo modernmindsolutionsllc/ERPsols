@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import type { ACPUser, AdminTool, ApiError, ToolKey } from '@/types';
 import {
   Search, Users, ShieldAlert, ShieldCheck, Clock, Filter, Loader2, RefreshCw,
-  KeyRound, Trash2, ArrowRight,
+  KeyRound, Trash2, ArrowRight, LockKeyhole,
 } from 'lucide-react';
 import { DASHBOARD_TOOLS } from '@/pages/DashboardPage';
 
@@ -158,6 +158,32 @@ export function AdminPage() {
         <div>
           <h1 className="text-2xl font-semibold text-[#0F172A] dark:text-slate-100 tracking-tight">Admin Control Panel</h1>
           <p className="text-sm text-[#64748B] dark:text-slate-400 mt-1">Manage users, monitor sessions, and enforce access control.</p>
+        </div>
+        <Link
+          to="/bip-reporting/manage"
+          className="inline-flex items-center gap-2 rounded-md bg-[#185FA5] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#0D3B6E]"
+        >
+          <LockKeyhole size={16} />
+          Open BIP Report Manager
+        </Link>
+      </div>
+
+      <div className="mb-6 rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-white p-5 dark:border-emerald-500/20 dark:from-emerald-500/10 dark:to-slate-900/80">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300">Private Admin Tool</p>
+            <h2 className="mt-2 text-lg font-semibold text-[#0F172A] dark:text-slate-100">Private Encrypted BIP Report Manager</h2>
+            <p className="mt-1 text-sm text-[#64748B] dark:text-slate-400">
+              Save module, report name, and SQL query into the encrypted vault, then review the decrypted query only from the admin-only manager.
+            </p>
+          </div>
+          <Link
+            to="/bip-reporting/manage"
+            className="inline-flex items-center justify-center gap-2 rounded-md border border-emerald-300 bg-white px-4 py-2.5 text-sm font-semibold text-emerald-800 transition-colors hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-transparent dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+          >
+            <LockKeyhole size={16} />
+            Go to Manager
+          </Link>
         </div>
       </div>
 

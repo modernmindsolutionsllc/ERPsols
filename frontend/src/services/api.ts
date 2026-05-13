@@ -81,8 +81,8 @@ async function authenticatedJson<T>(path: string, options: RequestInit = {}): Pr
   });
 }
 
-export function hasError<T>(res: ApiResponse<T> | ApiError): res is ApiError {
-  return 'error' in res && res.error !== undefined;
+export function hasError<T>(res: T | ApiError): res is ApiError {
+  return typeof res === 'object' && res !== null && 'error' in res && (res as ApiError).error !== undefined;
 }
 
 // Mock data stores
@@ -577,12 +577,27 @@ export interface BipReportCreate {
   sql_query: string;
 }
 
+export interface ManagedBipReportCreate {
+  module: string;
+  report_name: string;
+  sql_query: string;
+}
+
 export interface BipReportResponse {
   id: number;
   module: string;
   sub_module?: string | null;
   report_name: string;
   description?: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface ManagedBipReportResponse {
+  id: number;
+  module: string;
+  report_name: string;
+  sql_query: string;
   is_active: boolean;
   created_at: string;
 }
@@ -683,11 +698,20 @@ async function authenticatedDelete(path: string): Promise<{ message: string } | 
 
 export const bipReportingApi = {
   createBipReport: (data: BipReportCreate) =>
-    authenticatedJson<any>('/api/v1/bip-reports/', {
+    authenticatedJson<BipReportResponse>('/api/v1/bip-reports/', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
   getBipReports: () => authenticatedJson<BipReportResponse[]>('/api/v1/bip-reports/'),
+
+  createManagedBipReport: (data: ManagedBipReportCreate) =>
+    authenticatedJson<ManagedBipReportResponse>('/api/v1/bip-reports/manage', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  getManagedBipReports: () =>
+    authenticatedJson<ManagedBipReportResponse[]>('/api/v1/bip-reports/manage'),
 
   executeBipReports: (reportIds: number[], envName: string) =>
     authenticatedBlob('/api/v1/bip-reports/execute', {

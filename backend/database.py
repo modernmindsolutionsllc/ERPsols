@@ -219,6 +219,57 @@ def _safe_alter_columns(cursor: sqlite3.Cursor, table_name: str, columns: list[t
             pass
 
 
+def _ensure_bip_report_sql_query_nullable(cursor: sqlite3.Cursor) -> None:
+    """
+    Older SQLite checkouts created bip_report_configs.sql_query as NOT NULL.
+    Rebuild the table once so encrypted-only rows can store NULL in sql_query.
+    """
+    try:
+        cursor.execute("PRAGMA table_info(bip_report_configs)")
+        columns = cursor.fetchall()
+    except sqlite3.OperationalError:
+        return
+
+    if not columns:
+        return
+
+    sql_query_info = next((row for row in columns if row[1] == "sql_query"), None)
+    if not sql_query_info or sql_query_info[3] == 0:
+        return
+
+    cursor.execute("ALTER TABLE bip_report_configs RENAME TO bip_report_configs_legacy")
+    cursor.execute(
+        """
+        CREATE TABLE bip_report_configs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module VARCHAR NOT NULL,
+            sub_module TEXT,
+            report_name VARCHAR NOT NULL UNIQUE,
+            description TEXT,
+            sql_query TEXT,
+            encrypted_sql_query BLOB,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at DATETIME
+        )
+        """
+    )
+    cursor.execute(
+        """
+        INSERT INTO bip_report_configs (
+            id, module, sub_module, report_name, description,
+            sql_query, encrypted_sql_query, is_active, created_at
+        )
+        SELECT
+            id, module, sub_module, report_name, description,
+            sql_query, encrypted_sql_query, COALESCE(is_active, 1), created_at
+        FROM bip_report_configs_legacy
+        """
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS ix_bip_report_configs_module ON bip_report_configs (module)")
+    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_bip_report_configs_report_name ON bip_report_configs (report_name)")
+    cursor.execute("DROP TABLE bip_report_configs_legacy")
+
+
 def init_db():
     """
     Two-phase init:
@@ -305,6 +356,7 @@ def init_db():
         ("encrypted_sql_query", "BLOB"),
         ("is_active", "INTEGER DEFAULT 1"),
     ])
+    _ensure_bip_report_sql_query_nullable(cursor)
 
     # ── Drop the old unique constraint on user_id only (migrate to multi-env) ──
     # SQLite doesn't support DROP CONSTRAINT, so we check if the old index exists

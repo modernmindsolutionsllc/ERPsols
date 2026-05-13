@@ -6,6 +6,7 @@ import { DashboardPage } from '@/pages/DashboardPage';
 import { ConfigPage } from '@/pages/ConfigPage';
 import { DataConversionPage } from '@/pages/DataConversionPage';
 import { BIPReportingPage } from '@/pages/BIPReportingPage';
+import { BIPReportManagerPage } from '@/pages/BIPReportManagerPage';
 import { PayrollPage } from '@/pages/PayrollPage';
 import { AdminPage } from '@/pages/AdminPage';
 import type { ToolKey } from '@/types';
@@ -74,6 +75,7 @@ export default function App() {
       <Route path="/config" element={<ToolRoute toolKey="config_snapshot"><ConfigPage /></ToolRoute>} />
       <Route path="/data-conversion" element={<ToolRoute toolKey="data_conversion"><DataConversionPage /></ToolRoute>} />
       <Route path="/bip-reporting" element={<ToolRoute toolKey="bip_reporting"><BIPReportingPage /></ToolRoute>} />
+      <Route path="/bip-reporting/manage" element={<AdminRoute><BIPReportManagerPage /></AdminRoute>} />
       <Route path="/payroll" element={<ToolRoute toolKey="payroll"><PayrollPage /></ToolRoute>} />
       <Route path="/admin" element={<AdminRoute><AdminPage /></AdminRoute>} />
       <Route path="/" element={<Navigate to="/dashboard" replace />} />

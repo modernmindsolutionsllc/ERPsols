@@ -288,8 +288,31 @@ class BipReportCreate(BaseModel):
         return v.strip()
 
 
+class BipReportManageCreate(BaseModel):
+    module: str
+    report_name: str
+    sql_query: str
+
+    @field_validator("module", "report_name", "sql_query")
+    @classmethod
+    def required_text_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("This field cannot be empty.")
+        return v.strip()
+
+
 class BipReportResponse(BipReportBase):
     id: int
+    is_active: bool
+    created_at: datetime
+    model_config = {"from_attributes": True}
+
+
+class BipReportManageResponse(BaseModel):
+    id: int
+    module: str
+    report_name: str
+    sql_query: str
     is_active: bool
     created_at: datetime
     model_config = {"from_attributes": True}
