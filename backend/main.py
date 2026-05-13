@@ -47,6 +47,14 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     init_db()
+    # Fail-fast: validate Fernet key is present and usable
+    from routers.integrations import _get_fernet
+    try:
+        _get_fernet()
+    except (RuntimeError, ValueError) as e:
+        import sys
+        print(f"\n🔴 FATAL: {e}\n", file=sys.stderr)
+        sys.exit(1)
 
 
 # ── Routers ────────────────────────────────────────────────────────────────────

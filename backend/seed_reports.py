@@ -8,7 +8,7 @@ def seed_database():
         test_report_1 = BipReportConfig(
             module="Finance",
             report_name="Q3_Revenue_Test",
-            description="Bhaiya's test query for revenue",
+            description="Test query for revenue",
             sql_query="SELECT 'TEST_DATA' as col1, 1000 as revenue FROM DUAL"
         )
         

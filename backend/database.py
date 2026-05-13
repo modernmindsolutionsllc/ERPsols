@@ -170,7 +170,7 @@ class OracleCredential(Base):
     env_name                  = Column(String, nullable=False, default="Demo Oracle Fusion")
     oracle_url                = Column(String, nullable=False, default="https://fa-etaj-saasfademo1.ds-fa.oraclepdemos.com")
     oracle_username           = Column(String, nullable=False)
-    encrypted_oracle_password = Column(LargeBinary, nullable=False)
+    encrypted_oracle_password = Column(String, nullable=False)
     is_active                 = Column(Boolean, nullable=False, default=True)
     created_at                = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at                = Column(DateTime, default=lambda: datetime.now(timezone.utc),
@@ -188,7 +188,7 @@ class BipReportConfig(Base):
     report_name = Column(String, unique=True, index=True, nullable=False)
     description = Column(Text, nullable=True)
     sql_query   = Column(Text, nullable=True)
-    encrypted_sql_query = Column(LargeBinary, nullable=True)
+    encrypted_sql_query = Column(String, nullable=True)
     is_active   = Column(Boolean, nullable=False, default=True)
     created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 

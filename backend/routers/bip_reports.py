@@ -24,6 +24,9 @@ router = APIRouter(
     tags=["BIP Reports"],
 )
 
+import logging
+_logger = logging.getLogger(__name__)
+
 
 # ── Helper: Resolve credentials for a specific environment ────────────────────
 
@@ -54,7 +57,13 @@ def _decrypt_credential(credential: OracleCredential) -> tuple[str, str, str]:
     """Returns (username, password, url) from a credential record."""
     try:
         password = decrypt_password(credential.encrypted_oracle_password)
-    except Exception:
+        _logger.debug(
+            f"Decrypted password OK — len={len(password)}, "
+            f"starts='{password[:2]}***', "
+            f"type={type(credential.encrypted_oracle_password).__name__}"
+        )
+    except Exception as e:
+        _logger.error(f"Decryption failed for env={credential.env_name}: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to decrypt Oracle credentials. Please reconnect your account.",
@@ -181,6 +190,7 @@ def execute_reports(
             detail=f"All reports failed to generate. Errors: {', '.join(errors)}",
         )
 
+    excel_buffer.seek(0)
     headers = {"Content-Disposition": 'attachment; filename="Oracle_Config_Extract.xlsx"'}
     return StreamingResponse(
         excel_buffer,
@@ -221,6 +231,7 @@ def execute_direct_sql(
         ch if ch.isalnum() or ch in ("_", "-") else "_" for ch in body.report_name
     ).strip("_")
 
+    excel_buffer.seek(0)
     headers = {"Content-Disposition": f'attachment; filename="{safe_name or "BIP_Report"}.xlsx"'}
     return StreamingResponse(
         excel_buffer,

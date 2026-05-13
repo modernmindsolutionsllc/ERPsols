@@ -17,6 +17,7 @@ Endpoints:
 """
 
 import os
+import logging
 from datetime import datetime, timezone
 from typing import List
 
@@ -40,6 +41,8 @@ router = APIRouter(
     tags=["Oracle Integration"],
 )
 
+logger = logging.getLogger(__name__)
+
 
 # ── Fernet Encryption Engine ──────────────────────────────────────────────────
 
@@ -50,22 +53,54 @@ def _get_fernet() -> Fernet:
             "ORACLE_FERNET_KEY is not set in environment. "
             'Generate one with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
         )
+    # Validate key length — Fernet requires exactly 32 url-safe base64-encoded bytes
+    try:
+        Fernet(key.encode())
+    except Exception:
+        raise ValueError(
+            "ORACLE_FERNET_KEY is invalid. It must be a 32-byte url-safe base64-encoded key. "
+            'Regenerate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
+        )
     return Fernet(key.encode())
 
 
-def encrypt_password(plain_password: str) -> bytes:
-    """Encrypt a plain-text password into Fernet ciphertext (bytes)."""
+def encrypt_password(plain_password: str) -> str:
+    """
+    Encrypt a plain-text password into Fernet ciphertext.
+    Returns a clean UTF-8 string (base64), NOT raw bytes.
+    Safe for storage in both Text and LargeBinary columns.
+    """
     f = _get_fernet()
-    return f.encrypt(plain_password.encode("utf-8"))
+    encrypted_bytes = f.encrypt(plain_password.encode("utf-8"))
+    return encrypted_bytes.decode("utf-8")  # ← clean base64 string, no b'...' wrapper
 
 
-def decrypt_password(encrypted_password: bytes) -> str:
-    """Decrypt Fernet ciphertext back into plain-text. Used internally for ETL."""
+def decrypt_password(encrypted_password) -> str:
+    """
+    Decrypt Fernet ciphertext back into plain-text.
+    Handles BOTH str and bytes input — protects against the b-string trap
+    where SQLAlchemy may return either type depending on column definition.
+    """
     f = _get_fernet()
+
+    # Normalize input to bytes
+    if isinstance(encrypted_password, memoryview):
+        token = bytes(encrypted_password)
+    elif isinstance(encrypted_password, str):
+        # Strip Python byte-literal wrapper if present: b'...' or b"..."
+        s = encrypted_password.strip()
+        if (s.startswith("b'") and s.endswith("'")) or (s.startswith('b"') and s.endswith('"')):
+            s = s[2:-1]
+        token = s.encode("utf-8")
+    elif isinstance(encrypted_password, bytes):
+        token = encrypted_password
+    else:
+        raise TypeError(f"Unexpected type for encrypted_password: {type(encrypted_password)}")
+
     try:
-        return f.decrypt(encrypted_password).decode("utf-8")
+        return f.decrypt(token).decode("utf-8")
     except InvalidToken:
-        raise RuntimeError("Failed to decrypt Oracle password — key may have been rotated.")
+        raise RuntimeError("Failed to decrypt — Fernet key may have been rotated or data is corrupt.")
 
 
 # ── Intelligent URL Formatter ─────────────────────────────────────────────────
