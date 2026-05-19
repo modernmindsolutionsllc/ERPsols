@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import {
   BarChart3, Database, Download, FileSpreadsheet, Loader2, PlayCircle,
   Server, Globe, Pencil, UserPlus, Users, Trash2, Key, ChevronDown,
-  Zap, Layers, Info, Check, ChevronsUpDown,
+  Zap, Layers, Info, Check, ChevronsUpDown, CloudUpload, CheckCircle2, XCircle,
 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
@@ -23,6 +23,9 @@ import {
   EnvSetupModal, EditCredentialsModal, AddAccountModal, DeleteAllUsersModal,
 } from '@/components/shared/OracleSessionModals';
 import { Card } from '@/components/ui/card';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -83,6 +86,12 @@ export function BIPReportingPage() {
   // Combobox state
   const [openCombobox, setOpenCombobox] = useState(false);
 
+  // Catalog deployment state
+  const [isCatalogRunning, setIsCatalogRunning] = useState(false);
+  const [catalogLogs, setCatalogLogs] = useState<string[]>([]);
+  const [catalogSuccess, setCatalogSuccess] = useState<boolean | null>(null);
+  const [isCatalogLogOpen, setIsCatalogLogOpen] = useState(false);
+
   const fetchOracleStatus = useCallback(async () => {
     const res = await bipReportingApi.getOracleStatus();
     if (!isApiError(res)) setOracleStatus(res);
@@ -92,9 +101,16 @@ export function BIPReportingPage() {
     const res = await bipReportingApi.getOracleSessions();
     if (!isApiError(res)) {
       setSavedSessions(res);
-      if (res.length > 0 && !activeEnv) setActiveEnv(res[0]);
+      if (res.length > 0 && !activeEnv) {
+        // Prefer the environment matching the most-recently-used status
+        const statusEnv = oracleStatus?.env_name;
+        const preferred = statusEnv
+          ? res.find(s => s.env_name === statusEnv)
+          : undefined;
+        setActiveEnv(preferred || res[0]);
+      }
     }
-  }, [activeEnv]);
+  }, [activeEnv, oracleStatus]);
 
   const fetchReports = useCallback(async () => {
     const res = await bipReportingApi.getBipReports();
@@ -106,7 +122,18 @@ export function BIPReportingPage() {
     }
   }, []);
 
-  useEffect(() => { void fetchOracleStatus(); void fetchSessions(); void fetchReports(); }, []);
+  useEffect(() => {
+    async function init() {
+      await fetchOracleStatus();
+    }
+    void init();
+    void fetchReports();
+  }, []);
+
+  // Fetch sessions after oracleStatus is available so auto-select uses the correct env
+  useEffect(() => {
+    if (oracleStatus) void fetchSessions();
+  }, [oracleStatus]);
 
   const handleSessionRefresh = useCallback(async (newActiveEnvName?: string) => {
     await fetchOracleStatus();
@@ -149,6 +176,40 @@ export function BIPReportingPage() {
 
   const oracleConnected = oracleStatus?.connected === true;
   const triggerLabel = oracleConnected ? activeEnv?.env_name || 'Credentials Saved' : 'Connect';
+
+  const handleValidateCatalog = async () => {
+    if (!activeEnv) { toast.error('Please select an Oracle environment first.'); return; }
+    setIsCatalogRunning(true);
+    setCatalogLogs([]);
+    setCatalogSuccess(null);
+    setIsCatalogLogOpen(true);
+    toast.info('Deploying catalog to Oracle...', { id: 'catalog-deploy' });
+
+    try {
+      const res = await bipReportingApi.validateCatalog(activeEnv.env_name);
+      toast.dismiss('catalog-deploy');
+      if (isApiError(res)) {
+        toast.error(res.error.message || 'Catalog deployment failed.');
+        setCatalogLogs([res.error.message || 'Unknown error']);
+        setCatalogSuccess(false);
+      } else {
+        setCatalogLogs(res.logs);
+        setCatalogSuccess(res.success);
+        if (res.success) {
+          toast.success('Catalog deployed successfully!');
+        } else {
+          toast.warning('Catalog deployment completed with issues.');
+        }
+      }
+    } catch {
+      toast.dismiss('catalog-deploy');
+      toast.error('Network error during catalog deployment.');
+      setCatalogLogs(['Network error: Could not reach the backend.']);
+      setCatalogSuccess(false);
+    } finally {
+      setIsCatalogRunning(false);
+    }
+  };
 
   const handleRunReport = async () => {
     if (!activeEnv) { toast.error('Please select an Oracle environment first.'); return; }
@@ -223,7 +284,7 @@ export function BIPReportingPage() {
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 dark:text-slate-100 tracking-tight flex items-center gap-3">
-              <BarChart3 className="text-[#185FA5]" size={32} /> BIP Reporting Cockpit
+              <BarChart3 className="text-[#185FA5]" size={32} /> BIP Reporting Tool
             </h1>
             <p className="text-gray-500 dark:text-slate-400 mt-2">Select a report from the dropdown, execute against Oracle BIP, and review the data.</p>
           </div>
@@ -408,6 +469,16 @@ export function BIPReportingPage() {
                   {isRunning ? <Loader2 className="h-5 w-5 animate-spin" /> : <PlayCircle className="h-5 w-5" />}
                   {isRunning ? 'Running Query...' : '▶ Run SQL & Download'}
                 </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleValidateCatalog}
+                  disabled={!oracleConnected || isCatalogRunning || !activeEnv}
+                  className="w-full lg:w-auto gap-2 border-amber-200 dark:border-amber-500/30 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-500/10 h-9 text-xs font-semibold"
+                  size="sm"
+                >
+                  {isCatalogRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}
+                  {isCatalogRunning ? 'Deploying...' : 'Deploy Catalog'}
+                </Button>
                 <p className="text-[10px] text-muted-foreground text-center">
                   {activeEnv ? `Targeting ${activeEnv.env_name}` : 'Connect to Oracle first'}
                 </p>
@@ -501,6 +572,58 @@ export function BIPReportingPage() {
       />
       <AddAccountModal open={isAddAccountOpen} onOpenChange={setIsAddAccountOpen} onSuccess={handleSessionRefresh} />
       <DeleteAllUsersModal open={isDeleteAllOpen} onOpenChange={setIsDeleteAllOpen} onConfirm={handleDeleteAll} />
+
+      {/* ══════ CATALOG DEPLOYMENT LOG DIALOG ══════ */}
+      <Dialog open={isCatalogLogOpen} onOpenChange={setIsCatalogLogOpen}>
+        <DialogContent className="sm:max-w-[600px] max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <div className="mx-auto size-12 rounded-full flex items-center justify-center mb-2" style={{ background: catalogSuccess === null ? 'rgba(59,130,246,0.1)' : catalogSuccess ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)' }}>
+              {catalogSuccess === null ? (
+                <Loader2 className="animate-spin text-blue-500" size={22} />
+              ) : catalogSuccess ? (
+                <CheckCircle2 className="text-emerald-500" size={22} />
+              ) : (
+                <XCircle className="text-red-500" size={22} />
+              )}
+            </div>
+            <DialogTitle className="text-center text-lg">
+              {catalogSuccess === null ? 'Deploying Catalog...' : catalogSuccess ? 'Catalog Deployed' : 'Deployment Issues'}
+            </DialogTitle>
+            <DialogDescription className="text-center">
+              {activeEnv ? `Target: ${activeEnv.env_name}` : ''}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto mt-3 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-[#0A0F1E] p-4 font-mono text-xs leading-relaxed space-y-1 max-h-[400px]">
+            {catalogLogs.length === 0 ? (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="animate-spin" size={14} />
+                Waiting for deployment logs...
+              </div>
+            ) : (
+              catalogLogs.map((log, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    'py-0.5',
+                    log.startsWith('✅') && 'text-emerald-600 dark:text-emerald-400',
+                    log.startsWith('❌') && 'text-red-500 dark:text-red-400',
+                    log.startsWith('⬆️') && 'text-blue-600 dark:text-blue-400',
+                    log.startsWith('📁') && 'text-amber-600 dark:text-amber-400',
+                    log.startsWith('🔥') && 'text-red-600 dark:text-red-400 font-bold',
+                    log.startsWith('🎉') && 'text-emerald-600 dark:text-emerald-400 font-bold',
+                    log.startsWith('⚙️') && 'text-gray-500 dark:text-slate-400',
+                    log.startsWith('⏳') && 'text-gray-400 dark:text-slate-500',
+                    log.includes('Summary') && 'text-white dark:text-white font-bold border-t border-gray-300 dark:border-white/10 pt-2 mt-2',
+                  )}
+                >
+                  {log}
+                </div>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

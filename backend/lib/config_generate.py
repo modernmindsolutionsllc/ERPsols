@@ -205,8 +205,8 @@ def run_sqls_config_generation(
     and constructs a BR100-style Excel workbook in an in-memory BytesIO buffer.
     Returns: (BytesIO_buffer, list_of_errors)
     """
-    dyn_report_path = "/users/caleb.gavin/QuickConfigTool/Dynamic SQL Executor CSV Report.xdo"
-    dyn_template = "CSV"
+    dyn_report_path = f"/users/{username.lower()}/QuickConfigEngine/Data Models/Dynamic SQL Executor DM.xdm"
+    dyn_template = "blank_en_US"
     
     session_token = None
     http_session = None

@@ -193,6 +193,19 @@ class BipReportConfig(Base):
     created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
+class BiCatalogSetupData(Base):
+    """
+    Stores base64-encoded Oracle BI report/data-model definitions that
+    validate_catalog() deploys into the target environment.
+    """
+    __tablename__ = "bi_catalog_setup_data"
+
+    id                  = Column(Integer, primary_key=True, autoincrement=True)
+    bi_object_abs_path  = Column(String, nullable=False, unique=True)
+    bi_object_type      = Column(String, nullable=False)
+    bi_object_base64_data = Column(Text, nullable=False)
+
+
 # ── DB Session ─────────────────────────────────────────────────────────────────
 
 def get_db():

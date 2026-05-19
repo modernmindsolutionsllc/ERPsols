@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db, OracleCredential
 from dependencies import require_user
-from lib.bi_helper import fetch_bi_session_token, get_bip_PublicReportService_url
+from lib.bi_helper import fetch_bi_session_token, get_bip_PublicReportService_url, validate_catalog
 from Schemas import (
     OracleConnectRequest,
     OracleConnectResponse,
@@ -383,3 +383,65 @@ def oracle_status(
         }
 
     return {"connected": False}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  CATALOG DEPLOYMENT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@router.post("/oracle/sessions/{env_name}/validate-catalog")
+def deploy_catalog(
+    env_name: str,
+    current_user: dict = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Validate and deploy the required Data Models and Report templates
+    to the target Oracle BIP environment.
+
+    Decrypts the stored credentials, runs the full catalog deployment
+    script, and returns structured deployment logs.
+    """
+    user_id = int(current_user["sub"])
+
+    credential = (
+        db.query(OracleCredential)
+        .filter(
+            OracleCredential.user_id == user_id,
+            OracleCredential.env_name == env_name,
+        )
+        .first()
+    )
+
+    if not credential:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Oracle environment '{env_name}' not found.",
+        )
+
+    # Decrypt stored password
+    try:
+        plain_password = decrypt_password(credential.encrypted_oracle_password)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to decrypt Oracle credentials. Please reconnect your account.",
+        )
+
+    # Collect logs via callback
+    logs: list[str] = []
+
+    def append_log(msg: str):
+        logs.append(msg)
+        logger.info("[catalog:%s] %s", env_name, msg)
+
+    success = validate_catalog(
+        username=credential.oracle_username,
+        password=plain_password,
+        url=credential.oracle_url,
+        env_name=env_name,
+        append_log=append_log,
+    )
+
+    return {"success": success, "logs": logs}

@@ -722,4 +722,10 @@ export const bipReportingApi = {
 
   deleteAllOracleSessions: () =>
     authenticatedDelete('/api/v1/integrations/oracle/sessions'),
+
+  validateCatalog: (envName: string) =>
+    authenticatedJson<{ success: boolean; logs: string[] }>(
+      `/api/v1/integrations/oracle/sessions/${encodeURIComponent(envName)}/validate-catalog`,
+      { method: 'POST' },
+    ),
 };
