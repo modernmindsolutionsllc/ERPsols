@@ -5,6 +5,7 @@ Application entry point.
 Initialises the database on startup and wires all micro-service routers.
 """
 
+import os
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -28,18 +29,27 @@ app = FastAPI(
     description="Enterprise Resource Planning – Micro-service Backend",
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+# Support strict Vercel target in production and local development options in local dev
+allowed_origins = [frontend_url]
+if "localhost" in frontend_url or "127.0.0.1" in frontend_url:
+    allowed_origins.extend([
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-    ],
+    ])
+allowed_origins = list(dict.fromkeys(allowed_origins))
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 
 # ── Lifecycle ──────────────────────────────────────────────────────────────────
