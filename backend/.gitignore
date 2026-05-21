@@ -4,9 +4,9 @@ venv/
 env/
 
 # Database
-*.db
-*.sqlite3
-app.db
+# *.db
+# *.sqlite3
+# app.db
 
 # Python Caches
 __pycache__/
