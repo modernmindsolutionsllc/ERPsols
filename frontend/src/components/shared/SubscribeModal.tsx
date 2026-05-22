@@ -6,6 +6,8 @@ import {
 } from '@/components/ui/dialog';
 import { ArrowRightLeft, BarChart3, Wallet, Zap, Crown, Check, Sparkles, Camera } from 'lucide-react';
 import type { ToolKey } from '@/types';
+import { authApi } from '@/services/api';
+import { toast } from 'sonner';
 
 const ALL_FEATURES: { toolKey: ToolKey; icon: React.ElementType; label: string; desc: string; color: string; bg: string }[] = [
   {
@@ -56,8 +58,9 @@ interface SubscribeModalProps {
  * Can also be opened on demand via externalOpen prop.
  */
 export function SubscribeModal({ externalOpen, onExternalOpenChange }: SubscribeModalProps) {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [open, setOpen] = useState(false);
+  const [isUpgrading, setIsUpgrading] = useState(false);
 
   // Auto-show once per session after first login
   useEffect(() => {
@@ -78,6 +81,24 @@ export function SubscribeModal({ externalOpen, onExternalOpenChange }: Subscribe
   const handleOpenChange = (val: boolean) => {
     setOpen(val);
     onExternalOpenChange?.(val);
+  };
+
+  const handleUpgrade = async () => {
+    setIsUpgrading(true);
+    try {
+      const result = await authApi.addWorkspaceTool('bip_reporting');
+      if (result && !('error' in result)) {
+        toast.success('BIP Reporting tool unlocked successfully!');
+        await refreshUser();
+        handleOpenChange(false);
+      } else {
+        toast.error('Failed to unlock tool. Please try again.');
+      }
+    } catch {
+      toast.error('An unexpected error occurred during upgrade.');
+    } finally {
+      setIsUpgrading(false);
+    }
   };
 
   if (user?.role !== 'user') return null;
@@ -153,7 +174,7 @@ export function SubscribeModal({ externalOpen, onExternalOpenChange }: Subscribe
           <div className="flex-1 bg-white p-7 flex flex-col justify-between">
             {/* Close button */}
             <button
-              onClick={() => setOpen(false)}
+              onClick={() => handleOpenChange(false)}
               className="absolute top-4 right-4 w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-400 hover:text-gray-600 transition-colors cursor-pointer z-20"
             >
               <span className="text-lg leading-none">&times;</span>
@@ -194,8 +215,9 @@ export function SubscribeModal({ externalOpen, onExternalOpenChange }: Subscribe
             {/* CTA Buttons */}
             <div className="mt-6 space-y-2.5">
               <button
-                onClick={() => setOpen(false)}
-                className="group w-full relative h-11 rounded-xl text-white text-sm font-semibold shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all duration-300 cursor-pointer overflow-hidden"
+                onClick={handleUpgrade}
+                disabled={isUpgrading}
+                className="group w-full relative h-11 rounded-xl text-white text-sm font-semibold shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all duration-300 cursor-pointer overflow-hidden disabled:opacity-50"
                 style={{
                   background: 'linear-gradient(135deg, #6D28D9 0%, #A855F7 50%, #7C3AED 100%)',
                 }}
@@ -204,13 +226,14 @@ export function SubscribeModal({ externalOpen, onExternalOpenChange }: Subscribe
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
                 <span className="relative inline-flex items-center gap-1.5">
                   <Zap size={15} />
-                  Upgrade to Enterprise
+                  {isUpgrading ? 'Upgrading...' : 'Upgrade to Enterprise'}
                 </span>
               </button>
 
               <button
-                onClick={() => setOpen(false)}
-                className="w-full h-9 rounded-xl text-[13px] font-medium text-[#94A3B8] hover:text-[#64748B] hover:bg-gray-50 transition-colors cursor-pointer"
+                onClick={() => handleOpenChange(false)}
+                disabled={isUpgrading}
+                className="w-full h-9 rounded-xl text-[13px] font-medium text-[#94A3B8] hover:text-[#64748B] hover:bg-gray-50 transition-colors cursor-pointer disabled:opacity-50"
               >
                 Maybe Later
               </button>

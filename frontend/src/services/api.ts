@@ -344,6 +344,29 @@ export const authApi = {
       role: result.role,
       tool_access: result.tool_access || [],
     };
+  },
+
+  async addWorkspaceTool(toolKey: ToolKey): Promise<User | ApiError> {
+    const result = await authenticatedJson<{
+      id: number;
+      username: string;
+      email: string;
+      role: User['role'];
+      tool_access?: ToolKey[];
+    }>('/auth/workspace/tools', {
+      method: 'POST',
+      body: JSON.stringify({ tool_key: toolKey }),
+    });
+
+    if ('error' in result) return result;
+
+    return {
+      id: String(result.id),
+      name: result.username,
+      email: result.email,
+      role: result.role,
+      tool_access: result.tool_access || [],
+    };
   }
 };
 
@@ -696,6 +719,8 @@ export const bipReportingApi = {
       body: JSON.stringify(data),
     }),
   getBipReports: () => authenticatedJson<BipReportResponse[]>('/api/v1/bip-reports/'),
+  deleteBipReport: (reportId: number) =>
+    authenticatedDelete(`/api/v1/bip-reports/${reportId}`),
 
   importOracleCatalogQueries: (envName: string, sourceFolder?: string) =>
     authenticatedJson<OracleCatalogImportResponse>('/api/v1/bip-reports/import-oracle-catalog', {

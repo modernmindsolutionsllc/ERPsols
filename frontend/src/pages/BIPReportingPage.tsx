@@ -335,12 +335,18 @@ export function BIPReportingPage() {
         const worksheet = workbook.Sheets[targetSheetName];
         const jsonData = XLSX.utils.sheet_to_json(worksheet);
         
-        setTableData(jsonData);
+        const cleanJsonData = jsonData.filter((row: any) => {
+          if (!row || typeof row !== 'object') return false;
+          return !Object.values(row).some(val => 
+            typeof val === 'string' && val.trim().toUpperCase() === 'GO TO INDEX'
+          );
+        });
+        
+        setTableData(cleanJsonData);
         setHasResults(true);
         const workbookName = `${selectedReport.report_name}_${format(new Date(), 'yyyyMMdd_HHmmss')}.xlsx`;
         setLastWorkbook(response);
         setLastWorkbookName(workbookName);
-        downloadWorkbook(response, workbookName);
       }
     } catch { toast.dismiss('run-report'); toast.error('An unexpected error occurred.'); }
     finally { setIsRunning(false); }
@@ -560,7 +566,7 @@ export function BIPReportingPage() {
                   size="lg"
                 >
                   {isRunning ? <Loader2 className="h-5 w-5 animate-spin" /> : <PlayCircle className="h-5 w-5" />}
-                  {isRunning ? 'Running Query...' : '▶ Run SQL & Download'}
+                  {isRunning ? 'Running SQL...' : '▶ Run SQL'}
                 </Button>
                 <Button
                   variant="outline"

@@ -176,6 +176,23 @@ export function AdminPage() {
   const activeUsers = users.filter(u => !u.is_restricted).length;
   const restrictedUsers = users.filter(u => u.is_restricted).length;
 
+  async function handleDeleteReport(reportId: number, reportName: string) {
+    const confirmed = window.confirm(`Delete report configuration "${reportName}"? This cannot be undone.`);
+    if (!confirmed) return;
+
+    try {
+      const res = await bipReportingApi.deleteBipReport(reportId);
+      if (isApiError(res)) {
+        toast.error(res.error.message);
+      } else {
+        toast.success('Report configuration deleted successfully.');
+        void loadReports();
+      }
+    } catch {
+      toast.error('An unexpected error occurred while deleting the report.');
+    }
+  }
+
   const myTools = DASHBOARD_TOOLS.filter(t => currentUser?.tool_access?.includes(t.key));
 
   return (
@@ -477,6 +494,7 @@ export function AdminPage() {
                   <TableHead className="w-[150px] font-semibold text-[#0F172A] dark:text-slate-300">Module</TableHead>
                   <TableHead className="font-semibold text-[#0F172A] dark:text-slate-300">Report Name</TableHead>
                   <TableHead className="font-semibold text-[#0F172A] dark:text-slate-300">Description</TableHead>
+                  <TableHead className="text-center font-semibold text-[#0F172A] dark:text-slate-300 w-[100px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -489,6 +507,15 @@ export function AdminPage() {
                     </TableCell>
                     <TableCell className="text-[#334155] dark:text-slate-300 font-medium">{report.report_name}</TableCell>
                     <TableCell className="text-[#64748B] dark:text-slate-400 text-sm">{report.description || '-'}</TableCell>
+                    <TableCell className="text-center">
+                      <button
+                        onClick={() => handleDeleteReport(report.id, report.report_name)}
+                        className="inline-flex items-center justify-center p-1.5 rounded-md border border-[#DC2626]/30 text-[#DC2626] hover:bg-[#FEF2F2] dark:hover:bg-[#450A0A] transition-colors"
+                        title="Delete report configuration"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

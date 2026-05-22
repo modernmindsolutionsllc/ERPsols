@@ -138,6 +138,33 @@ def list_bip_reports(
     return db.query(BipReportConfig).all()
 
 
+@router.delete("/{report_id}", status_code=status.HTTP_200_OK)
+def delete_bip_report(
+    report_id: int,
+    current_user: dict = Depends(require_tool_access("bip_reporting")),
+    db: Session = Depends(get_db)
+):
+    """Delete a stored BIP report configuration with strict error checking."""
+    report = db.query(BipReportConfig).filter(BipReportConfig.id == report_id).first()
+    if not report:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"BIP Report configuration with ID {report_id} not found."
+        )
+    
+    try:
+        db.delete(report)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete BIP Report configuration: {exc}"
+        )
+    
+    return {"message": "Report configuration deleted successfully."}
+
+
 @router.post("/import-oracle-catalog", response_model=OracleCatalogImportResponse)
 def import_oracle_catalog_reports(
     body: OracleCatalogImportRequest,

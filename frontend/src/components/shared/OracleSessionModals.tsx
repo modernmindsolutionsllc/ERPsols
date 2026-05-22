@@ -12,7 +12,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Server,
-  Lock,
   ShieldCheck,
   Loader2,
   Globe,
@@ -20,6 +19,8 @@ import {
   UserPlus,
   Trash2,
   AlertTriangle,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -52,11 +53,17 @@ export function EnvSetupModal({ open, onOpenChange, onSuccess }: EnvSetupModalPr
   const [oracleUrl, setOracleUrl] = useState('https://fa-etaj-saasfademo1.ds-fa.oraclepdemos.com');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!projectName.trim() || !oracleUrl.trim() || !username.trim() || !password) {
+    const trimmedProject = projectName.trim();
+    const trimmedUrl = oracleUrl.trim();
+    const trimmedUser = username.trim();
+    const trimmedPass = password.trim();
+
+    if (!trimmedProject || !trimmedUrl || !trimmedUser || !trimmedPass) {
       toast.error('All fields are required.');
       return;
     }
@@ -73,10 +80,10 @@ export function EnvSetupModal({ open, onOpenChange, onSuccess }: EnvSetupModalPr
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          oracle_url: oracleUrl.trim(),
-          env_name: projectName.trim(),
-          oracle_username: username.trim(),
-          oracle_password: password,
+          oracle_url: trimmedUrl,
+          env_name: trimmedProject,
+          oracle_username: trimmedUser,
+          oracle_password: trimmedPass,
         }),
       });
 
@@ -180,14 +187,21 @@ export function EnvSetupModal({ open, onOpenChange, onSuccess }: EnvSetupModalPr
               <div className="relative">
                 <Input
                   id="env-pass"
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={isSubmitting}
-                  className="pr-9 dark:bg-white/5 dark:border-white/10"
+                  className="pr-10 dark:bg-white/5 dark:border-white/10"
                 />
-                <Lock className="absolute right-3 top-2.5 text-muted-foreground" size={14} />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-2.5 text-muted-foreground hover:text-foreground focus:outline-none"
+                  disabled={isSubmitting}
+                >
+                  {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
               </div>
             </div>
           </div>
@@ -241,6 +255,7 @@ export function EditCredentialsModal({ open, onOpenChange, currentUsername, curr
   const [projectName, setProjectName] = useState(currentEnvName || '');
   const [username, setUsername] = useState(currentUsername || '');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Sync state when the modal opens with fresh props
@@ -253,7 +268,10 @@ export function EditCredentialsModal({ open, onOpenChange, currentUsername, curr
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username.trim() || !password) {
+    const trimmedUser = username.trim();
+    const trimmedPass = password.trim();
+
+    if (!trimmedUser || !trimmedPass) {
       toast.error('Both username and password are required.');
       return;
     }
@@ -273,8 +291,8 @@ export function EditCredentialsModal({ open, onOpenChange, currentUsername, curr
           old_env_name: currentEnvName || 'Demo Oracle Fusion',
           env_name: projectName.trim() || 'Demo Oracle Fusion',
           oracle_url: currentUrl || 'https://fa-etaj-saasfademo1.ds-fa.oraclepdemos.com',
-          oracle_username: username.trim(),
-          oracle_password: password,
+          oracle_username: trimmedUser,
+          oracle_password: trimmedPass,
         }),
       });
 
@@ -332,14 +350,21 @@ export function EditCredentialsModal({ open, onOpenChange, currentUsername, curr
             <div className="relative">
               <Input
                 id="edit-pass"
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 placeholder="••••••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={isSubmitting}
-                className="pr-9 dark:bg-white/5 dark:border-white/10"
+                className="pr-10 dark:bg-white/5 dark:border-white/10"
               />
-              <Lock className="absolute right-3 top-2.5 text-muted-foreground" size={14} />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-2.5 text-muted-foreground hover:text-foreground focus:outline-none"
+                disabled={isSubmitting}
+              >
+                {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
             </div>
           </div>
 
@@ -380,11 +405,17 @@ export function AddAccountModal({ open, onOpenChange, onSuccess }: AddAccountMod
   const [oracleUrl, setOracleUrl] = useState('https://fa-etaj-saasfademo1.ds-fa.oraclepdemos.com');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!envName.trim() || !username.trim() || !password) {
+    const trimmedEnv = envName.trim();
+    const trimmedUrl = oracleUrl.trim();
+    const trimmedUser = username.trim();
+    const trimmedPass = password.trim();
+
+    if (!trimmedEnv || !trimmedUser || !trimmedPass) {
       toast.error('All fields are required.');
       return;
     }
@@ -401,10 +432,10 @@ export function AddAccountModal({ open, onOpenChange, onSuccess }: AddAccountMod
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          oracle_url: oracleUrl.trim(),
-          env_name: envName.trim(),
-          oracle_username: username.trim(),
-          oracle_password: password,
+          oracle_url: trimmedUrl,
+          env_name: trimmedEnv,
+          oracle_username: trimmedUser,
+          oracle_password: trimmedPass,
         }),
       });
 
@@ -482,14 +513,21 @@ export function AddAccountModal({ open, onOpenChange, onSuccess }: AddAccountMod
               <div className="relative">
                 <Input
                   id="add-pass"
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={isSubmitting}
-                  className="pr-9 dark:bg-white/5 dark:border-white/10"
+                  className="pr-10 dark:bg-white/5 dark:border-white/10"
                 />
-                <Lock className="absolute right-3 top-2.5 text-muted-foreground" size={14} />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-2.5 text-muted-foreground hover:text-foreground focus:outline-none"
+                  disabled={isSubmitting}
+                >
+                  {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
               </div>
             </div>
           </div>

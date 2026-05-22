@@ -25,8 +25,10 @@ from Schemas import (
     UserResponse,
     MessageResponse,
     OTPRequestResponse,
+    AddToolRequest,
 )
 from Auth_utils import hash_password, create_access_token, send_otp_email
+from dependencies import get_verified_user
 
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -230,3 +232,48 @@ def verify_otp(body: OTPVerify, db: Session = Depends(get_db)):
             tool_access=tool_access,
         ),
     }
+
+
+@router.post("/workspace/tools", response_model=UserResponse)
+def add_workspace_tool(
+    body: AddToolRequest,
+    current_user: dict = Depends(get_verified_user),
+    db: Session = Depends(get_db)
+):
+    """Associate a tool (e.g. 'bip_reporting') with the authenticated user's workspace."""
+    user_id = int(current_user["sub"])
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found.",
+        )
+    
+    # Check if access already exists
+    existing = db.query(UserToolAccess).filter(
+        UserToolAccess.user_id == user_id,
+        UserToolAccess.tool_key == body.tool_key
+    ).first()
+    
+    if not existing:
+        new_access = UserToolAccess(user_id=user_id, tool_key=body.tool_key)
+        db.add(new_access)
+        db.commit()
+        db.refresh(user)
+    
+    role = db.query(Role).filter(Role.id == user.role_id).first()
+    role_name = role.name if role else "user"
+    tool_access = sorted(
+        grant.tool_key
+        for grant in db.query(UserToolAccess).filter(UserToolAccess.user_id == user.id).all()
+    )
+    
+    return UserResponse(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        role=role_name,
+        is_active=bool(user.is_active),
+        created_at=user.created_at,
+        tool_access=tool_access,
+    )

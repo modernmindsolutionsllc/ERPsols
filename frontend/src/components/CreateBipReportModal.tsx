@@ -29,6 +29,7 @@ interface CreateBipReportModalProps {
 export function CreateBipReportModal({ open, onOpenChange, onSuccess }: CreateBipReportModalProps) {
   const [module, setModule] = useState('Core HR');
   const [reportName, setReportName] = useState('Sample_Test_Report');
+  const [description, setDescription] = useState('');
   const [sqlQuery, setSqlQuery] = useState('select 1 from dual');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -45,6 +46,7 @@ export function CreateBipReportModal({ open, onOpenChange, onSuccess }: CreateBi
       const response = await bipReportingApi.createBipReport({
         module,
         report_name: reportName,
+        description: description.trim() || undefined,
         sql_query: sqlQuery,
       });
 
@@ -57,6 +59,7 @@ export function CreateBipReportModal({ open, onOpenChange, onSuccess }: CreateBi
         // Reset form to defaults
         setModule('Core HR');
         setReportName('Sample_Test_Report');
+        setDescription('');
         setSqlQuery('select 1 from dual');
       }
     } catch (error) {
@@ -107,6 +110,17 @@ export function CreateBipReportModal({ open, onOpenChange, onSuccess }: CreateBi
           </div>
 
           <div className="space-y-2">
+            <Label htmlFor="description">Description</Label>
+            <Input
+              id="description"
+              placeholder="e.g., Extracts core employee profile metadata"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              disabled={isSubmitting}
+            />
+          </div>
+
+          <div className="space-y-2">
             <Label htmlFor="sql-query">SQL Query</Label>
             <Textarea
               id="sql-query"
@@ -138,7 +152,7 @@ export function CreateBipReportModal({ open, onOpenChange, onSuccess }: CreateBi
                   Saving...
                 </>
               ) : (
-                'Save Configuration'
+                'Save Report'
               )}
             </Button>
           </div>

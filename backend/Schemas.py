@@ -79,6 +79,11 @@ class OTPRequestResponse(MessageResponse):
     dev_otp: Optional[str] = None
 
 
+
+class AddToolRequest(BaseModel):
+    tool_key: str
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  CONFIG SNAPSHOT SCHEMAS
 # ═══════════════════════════════════════════════════════════════════════════════
