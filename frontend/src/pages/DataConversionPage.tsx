@@ -1,18 +1,24 @@
+/**
+ * DataConversionPage.tsx
+ * ─────────────────────
+ * 3-tier drill-down state machine for the Data Conversion Tool (ETL Pipeline).
+ *
+ *   Level 1 — Module grid       (selectedModule = null)
+ *   Level 2 — Business Objects  (selectedModule set, selectedObject = null)
+ *   Level 3 — UniversalETLScreen (both set)
+ */
+
 import { useState } from 'react';
-import { etlApi } from '@/services/api';
-import { usePermission } from '@/hooks/usePermission';
-import { usePoll } from '@/hooks/usePoll';
-import { StatusBadge } from '@/components/shared/StatusBadge';
-import { ProgressBarPulse } from '@/components/shared/ProgressBarPulse';
-import { EmptyState } from '@/components/shared/EmptyState';
-import { toast } from 'sonner';
-import { hasError } from '@/services/api';
+import { DATA_LOADER_CONFIG, type ModuleConfig, type BusinessObject } from '@/config/dataLoaderConfig';
+import { UniversalETLScreen } from '@/components/UniversalETLScreen';
 import {
-  Play, X, Download, ArrowRightLeft, CheckCircle2, Clock,
-  ShieldCheck, Layers, Cpu,
+  ArrowRightLeft, ShieldCheck, Layers, Cpu,
+  ArrowRight, ArrowLeft, Lock,
 } from 'lucide-react';
 
-const ETL_STEPS = ['Extract', 'Transform', 'Validate', 'Verify', 'Load'];
+// ═══════════════════════════════════════════════════════════════════════════════
+//  WELCOME BANNER
+// ═══════════════════════════════════════════════════════════════════════════════
 
 function ToolWelcomeBanner() {
   return (
@@ -56,15 +62,15 @@ function ToolWelcomeBanner() {
               Validation &amp; Verification Engine
             </p>
             <p className="mt-2 text-sm text-white/55 max-w-2xl leading-relaxed">
-              Run end-to-end ETL pipelines - Extract, Transform, Validate, Verify, and Load. Ensure data integrity and completeness before committing to the target system.
+              Select a module below, then drill into its business objects to upload, validate, preview, and load .xlsx data into Oracle HCM Cloud.
             </p>
           </div>
         </div>
         <div className="mt-6 flex flex-wrap gap-2">
           {[
-            { icon: Layers, label: 'Extract & Transform' },
-            { icon: ShieldCheck, label: 'Validate & Verify' },
-            { icon: Cpu, label: 'Live Progress Tracking' },
+            { icon: Layers, label: 'Extract & Upload' },
+            { icon: ShieldCheck, label: 'Validate & Preview' },
+            { icon: Cpu, label: 'Load to Oracle' },
           ].map(({ icon: Icon, label }) => (
             <div
               key={label}
@@ -81,264 +87,244 @@ function ToolWelcomeBanner() {
   );
 }
 
-export function DataConversionPage() {
-  const [modalOpen, setModalOpen] = useState(false);
-  const [source, setSource] = useState('Legacy HR');
-  const [target, setTarget] = useState('Modern HRIS');
-  const [jobName, setJobName] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const canRun = usePermission('run_etl');
+// ═══════════════════════════════════════════════════════════════════════════════
+//  LEVEL 1 — MODULE GRID
+// ═══════════════════════════════════════════════════════════════════════════════
 
-  const { data: jobsData, loading: jobsLoading } = usePoll(
-    async () => {
-      const res = await etlApi.getJobs();
-      return res.data;
-    },
-    3000,
-    true
+function ModuleGrid({ onSelect }: { onSelect: (mod: ModuleConfig) => void }) {
+  return (
+    <>
+      <div className="mb-6">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 tracking-tight">
+          Select a Module
+        </h2>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+          Choose an Oracle HCM module to begin the data conversion process.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        {DATA_LOADER_CONFIG.map((mod) => {
+          const Icon = mod.icon;
+          const isEmpty = mod.objects.length === 0;
+          return (
+            <button
+              key={mod.key}
+              onClick={() => !isEmpty && onSelect(mod)}
+              disabled={isEmpty}
+              className={`group relative text-left rounded-xl overflow-hidden transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50 ${
+                isEmpty
+                  ? 'opacity-60 cursor-not-allowed'
+                  : 'hover:shadow-xl hover:shadow-black/5 dark:hover:shadow-black/20 hover:-translate-y-0.5'
+              }`}
+            >
+              {/* Card gradient background */}
+              <div
+                className="absolute inset-0 opacity-90 group-hover:opacity-100 transition-opacity duration-500"
+                style={{
+                  background: `linear-gradient(145deg, ${mod.gradientFrom} 0%, ${mod.gradientTo} 100%)`,
+                }}
+              />
+              {/* Noise texture */}
+              <div
+                className="absolute inset-0 opacity-[0.04]"
+                style={{
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
+                }}
+              />
+              {/* Glow */}
+              <div
+                className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+                style={{ boxShadow: `inset 0 0 0 1px ${mod.accentColor}55` }}
+              />
+              {/* Decorative icon */}
+              <div className="absolute -bottom-3 -right-3 opacity-[0.08] group-hover:opacity-[0.14] transition-opacity duration-500">
+                <Icon size={100} strokeWidth={0.8} className="text-white" />
+              </div>
+
+              <div className="relative z-10 p-5 min-h-[160px] flex flex-col">
+                <div className="flex items-start justify-between mb-4">
+                  <div
+                    className="flex h-10 w-10 items-center justify-center rounded-lg transition-transform duration-300 group-hover:scale-110"
+                    style={{
+                      backgroundColor: 'rgba(255,255,255,0.12)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                    }}
+                  >
+                    <Icon size={20} className="text-white" strokeWidth={1.75} />
+                  </div>
+                  {isEmpty && (
+                    <div className="flex items-center gap-1 text-[10px] font-medium text-white/40 bg-white/10 rounded-full px-2 py-0.5">
+                      <Lock size={9} /> Coming Soon
+                    </div>
+                  )}
+                  {!isEmpty && (
+                    <div
+                      className="text-[11px] font-bold rounded-full px-2 py-0.5"
+                      style={{ background: `${mod.accentColor}40`, color: mod.tagColor }}
+                    >
+                      {mod.objects.length} {mod.objects.length === 1 ? 'Object' : 'Objects'}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex-1">
+                  <h3 className="text-base font-bold text-white mb-1">{mod.label}</h3>
+                  <p className="text-xs text-white/50 leading-relaxed line-clamp-2">{mod.description}</p>
+                </div>
+
+                {!isEmpty && (
+                  <div className="mt-4 flex items-center gap-1.5">
+                    <span className="text-xs font-semibold transition-all duration-300 group-hover:mr-0.5" style={{ color: mod.tagColor }}>
+                      Explore
+                    </span>
+                    <div
+                      className="flex h-5 w-5 items-center justify-center rounded-full transition-transform duration-300 group-hover:translate-x-0.5"
+                      style={{ backgroundColor: 'rgba(255,255,255,0.1)' }}
+                    >
+                      <ArrowRight size={10} className="text-white" />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </>
   );
+}
 
-  const jobs = jobsData || [];
-  const activeJobs = jobs.filter(j => j.status === 'running' || j.status === 'pending');
-  const completedJobs = jobs.filter(j => j.status === 'completed' || j.status === 'failed');
+// ═══════════════════════════════════════════════════════════════════════════════
+//  LEVEL 2 — BUSINESS OBJECTS GRID
+// ═══════════════════════════════════════════════════════════════════════════════
 
-  async function handleRunJob(e: React.FormEvent) {
-    e.preventDefault();
-    setSubmitting(true);
-    const res = await etlApi.runJob(source, target, jobName || undefined);
-    if (hasError(res)) {
-      toast.error(res.error.message);
-    } else {
-      toast.success(`ETL job ${res.data.id} started`);
-      setModalOpen(false);
-      setJobName('');
-    }
-    setSubmitting(false);
-  }
+function BusinessObjectGrid({
+  module: mod,
+  onSelect,
+  onBack,
+}: {
+  module: ModuleConfig;
+  onSelect: (obj: BusinessObject) => void;
+  onBack: () => void;
+}) {
+  const ModIcon = mod.icon;
+
+  return (
+    <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+      <button
+        onClick={onBack}
+        className="inline-flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition-colors mb-5 group"
+      >
+        <ArrowLeft size={16} className="transition-transform group-hover:-translate-x-1" />
+        Back to Modules
+      </button>
+
+      {/* Module header card */}
+      <div
+        className="relative overflow-hidden rounded-xl mb-6"
+        style={{ background: `linear-gradient(135deg, ${mod.gradientFrom} 0%, ${mod.gradientTo} 100%)` }}
+      >
+        <div className="absolute inset-0 opacity-[0.04]"
+          style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
+          }}
+        />
+        <div className="pointer-events-none absolute -bottom-3 -right-3 opacity-10">
+          <ModIcon size={120} strokeWidth={0.8} className="text-white" />
+        </div>
+        <div className="relative z-10 px-6 py-5 flex items-center gap-4">
+          <div
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg"
+            style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)' }}
+          >
+            <ModIcon size={20} className="text-white" strokeWidth={1.75} />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-white leading-tight">{mod.label}</h2>
+            <p className="text-xs text-white/50 mt-0.5">{mod.objects.length} business objects available</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {mod.objects.map((obj) => {
+          const ObjIcon = obj.icon;
+          return (
+            <button
+              key={obj.key}
+              onClick={() => onSelect(obj)}
+              className="group relative text-left bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-white/10 rounded-xl p-5 transition-all duration-200 hover:shadow-lg hover:shadow-black/5 dark:hover:shadow-black/20 hover:-translate-y-0.5 hover:border-slate-300 dark:hover:border-white/20 outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50"
+            >
+              <div className="flex items-start gap-4">
+                <div
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-transform duration-300 group-hover:scale-110"
+                  style={{ background: `${mod.accentColor}15`, border: `1px solid ${mod.accentColor}25` }}
+                >
+                  <ObjIcon size={18} style={{ color: mod.accentColor }} strokeWidth={1.75} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-1 truncate">
+                    {obj.label}
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed line-clamp-2">
+                    {obj.description}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 flex items-center gap-1.5">
+                <span className="text-xs font-semibold transition-all duration-300 group-hover:mr-0.5" style={{ color: mod.accentColor }}>
+                  Open Upload
+                </span>
+                <div
+                  className="flex h-5 w-5 items-center justify-center rounded-full transition-transform duration-300 group-hover:translate-x-0.5"
+                  style={{ backgroundColor: `${mod.accentColor}15` }}
+                >
+                  <ArrowRight size={10} style={{ color: mod.accentColor }} />
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  MAIN PAGE — STATE MACHINE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export function DataConversionPage() {
+  const [selectedModule, setSelectedModule] = useState<ModuleConfig | null>(null);
+  const [selectedObject, setSelectedObject] = useState<BusinessObject | null>(null);
 
   return (
     <div className="p-6 lg:p-8 max-w-[1400px] mx-auto animate-in fade-in duration-250">
-      <ToolWelcomeBanner />
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-lg font-semibold text-[#0F172A] dark:text-slate-100 tracking-tight">ETL Jobs</h2>
-          <p className="text-sm text-[#64748B] dark:text-slate-400 mt-0.5">Extract - Transform - Validate - Verify - Load</p>
-        </div>
-        {canRun && (
-          <button
-            onClick={() => setModalOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-[#0F6E56] hover:bg-[#0A5543] text-white text-sm font-medium rounded-md transition-colors"
-          >
-            <Play size={16} />
-            Run ETL Job
-          </button>
-        )}
-      </div>
+      {/* Always show the welcome banner at Level 1 */}
+      {!selectedModule && <ToolWelcomeBanner />}
 
-      <div className="bg-white dark:bg-slate-900/80 border border-[#E2E8F0] dark:border-white/10 rounded-lg p-6 mb-6">
-        <div className="flex items-center justify-between max-w-[800px] mx-auto">
-          {ETL_STEPS.map((step, i) => {
-            const hasRunning = activeJobs.length > 0;
-            const stepStatus = hasRunning
-              ? i < 2 ? 'completed' : i === 2 ? 'active' : 'pending'
-              : completedJobs.length > 0
-                ? 'completed'
-                : 'pending';
+      {/* Level 1: Module Grid */}
+      {!selectedModule && (
+        <ModuleGrid onSelect={(mod) => setSelectedModule(mod)} />
+      )}
 
-            return (
-              <div key={step} className="flex items-center flex-1">
-                <div className="flex flex-col items-center">
-                  <div
-                    className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium border-2 transition-all duration-300 ${
-                      stepStatus === 'completed'
-                        ? 'bg-[#0F6E56] border-[#0F6E56] text-white'
-                        : stepStatus === 'active'
-                          ? 'border-[#0F6E56] text-[#0F6E56] animate-pulse'
-                          : 'border-[#E2E8F0] dark:border-white/10 text-[#94A3B8] dark:text-slate-500'
-                    }`}
-                    style={stepStatus === 'active' ? { boxShadow: '0 0 0 4px rgba(15,110,86,0.15)' } : {}}
-                  >
-                    {stepStatus === 'completed' ? <CheckCircle2 size={14} /> : i + 1}
-                  </div>
-                  <span className={`text-xs mt-2 font-medium ${
-                    stepStatus === 'completed'
-                      ? 'text-[#0F6E56]'
-                      : stepStatus === 'active'
-                        ? 'text-[#0F6E56]'
-                        : 'text-[#94A3B8] dark:text-slate-500'
-                  }`}>
-                    {step}
-                  </span>
-                </div>
-                {i < ETL_STEPS.length - 1 && (
-                  <div className={`flex-1 h-0.5 mx-2 transition-colors duration-300 ${
-                    stepStatus === 'completed' ? 'bg-[#0F6E56]' : 'bg-[#E2E8F0] dark:bg-white/10'
-                  }`} />
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      {/* Level 2: Business Objects */}
+      {selectedModule && !selectedObject && (
+        <BusinessObjectGrid
+          module={selectedModule}
+          onSelect={(obj) => setSelectedObject(obj)}
+          onBack={() => setSelectedModule(null)}
+        />
+      )}
 
-      <div className="bg-white dark:bg-slate-950/90 border border-[#E2E8F0] dark:border-white/10 rounded-lg overflow-hidden mb-6">
-        <div className="px-6 py-4 border-b border-[#E2E8F0] dark:border-white/10">
-          <h2 className="text-base font-semibold text-[#0F172A] dark:text-slate-100">Active Jobs</h2>
-        </div>
-        {jobsLoading && activeJobs.length === 0 ? (
-          <div className="p-4">
-            <div className="space-y-3">
-              {Array.from({ length: 2 }).map((_, i) => (
-                <div key={i} className="h-14 bg-gray-100 dark:bg-slate-800 rounded animate-pulse" />
-              ))}
-            </div>
-          </div>
-        ) : activeJobs.length === 0 ? (
-          <EmptyState
-            icon={<ArrowRightLeft size={48} />}
-            title="No active ETL jobs"
-            description="Start an ETL job to begin migration."
-          />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-[#F3F4F6] dark:bg-slate-900">
-                  <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B] dark:text-slate-400">Job ID</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B] dark:text-slate-400">Progress</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B] dark:text-slate-400">Status</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B] dark:text-slate-400">Started</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#E2E8F0] dark:divide-white/10">
-                {activeJobs.map(job => (
-                  <tr key={job.id} className="hover:bg-[#EAF2FB] dark:hover:bg-slate-900/70 transition-colors">
-                    <td className="px-4 py-3 font-mono text-sm text-[#0F172A] dark:text-slate-100">{job.id}</td>
-                    <td className="px-4 py-3 w-[280px]">
-                      <ProgressBarPulse value={job.progress} status={job.status} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={job.status === 'running' ? 'Running' : 'Pending'} pulse={job.status === 'running'} />
-                    </td>
-                    <td className="px-4 py-3 text-sm text-[#64748B] dark:text-slate-400">{new Date(job.startedAt).toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <div className="bg-white dark:bg-slate-950/90 border border-[#E2E8F0] dark:border-white/10 rounded-lg overflow-hidden">
-        <div className="px-6 py-4 border-b border-[#E2E8F0] dark:border-white/10">
-          <h2 className="text-base font-semibold text-[#0F172A] dark:text-slate-100">Completed Jobs</h2>
-        </div>
-        {completedJobs.length === 0 ? (
-          <EmptyState
-            icon={<Clock size={48} />}
-            title="No completed jobs yet"
-            description="Completed ETL jobs will appear here."
-          />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-[#F3F4F6] dark:bg-slate-900">
-                  <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B] dark:text-slate-400">Job ID</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B] dark:text-slate-400">Source - Target</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B] dark:text-slate-400">Records</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B] dark:text-slate-400">Duration</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider text-[#64748B] dark:text-slate-400">Status</th>
-                  <th className="w-16"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#E2E8F0] dark:divide-white/10">
-                {completedJobs.map(job => (
-                  <tr key={job.id} className="hover:bg-[#EAF2FB] dark:hover:bg-slate-900/70 transition-colors">
-                    <td className="px-4 py-3 font-mono text-sm text-[#0F172A] dark:text-slate-100">{job.id}</td>
-                    <td className="px-4 py-3 text-sm text-[#64748B] dark:text-slate-400">{job.source} - {job.target}</td>
-                    <td className="px-4 py-3 text-sm text-[#0F172A] dark:text-slate-100">{new Intl.NumberFormat().format(job.recordsProcessed || 0)}</td>
-                    <td className="px-4 py-3 text-sm text-[#64748B] dark:text-slate-400">{job.duration || '-'}</td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={job.status === 'completed' ? 'Completed' : 'Failed'} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <button className="p-1.5 hover:bg-gray-100 dark:hover:bg-slate-800 rounded text-[#64748B] dark:text-slate-400 hover:text-[#185FA5] transition-colors">
-                        <Download size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/45" onClick={() => setModalOpen(false)} />
-          <div className="relative bg-white dark:bg-slate-950 rounded-xl p-6 w-full max-w-[480px] mx-4 shadow-xl border border-transparent dark:border-white/10" style={{ animation: 'scale-in 200ms ease-out' }}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-[#0F172A] dark:text-slate-100">Configure ETL Job</h2>
-              <button onClick={() => setModalOpen(false)} className="p-1 hover:bg-gray-100 dark:hover:bg-slate-800 rounded">
-                <X size={18} className="text-[#64748B] dark:text-slate-400" />
-              </button>
-            </div>
-            <form onSubmit={handleRunJob} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-[#0F172A] dark:text-slate-100 mb-1.5">Source System</label>
-                <select
-                  value={source}
-                  onChange={e => setSource(e.target.value)}
-                  className="w-full h-10 px-3 rounded-md border border-[#E2E8F0] dark:border-white/10 text-sm text-[#0F172A] dark:text-slate-100 focus:outline-none focus:border-[#185FA5] focus:ring-3 focus:ring-[rgba(24,95,165,0.15)] bg-white dark:bg-slate-900"
-                >
-                  <option>Legacy HR</option>
-                  <option>Legacy Payroll</option>
-                  <option>Legacy CRM</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[#0F172A] dark:text-slate-100 mb-1.5">Target System</label>
-                <select
-                  value={target}
-                  onChange={e => setTarget(e.target.value)}
-                  className="w-full h-10 px-3 rounded-md border border-[#E2E8F0] dark:border-white/10 text-sm text-[#0F172A] dark:text-slate-100 focus:outline-none focus:border-[#185FA5] focus:ring-3 focus:ring-[rgba(24,95,165,0.15)] bg-white dark:bg-slate-900"
-                >
-                  <option>Modern HRIS</option>
-                  <option>Modern Payroll</option>
-                  <option>Data Lake</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[#0F172A] dark:text-slate-100 mb-1.5">Job Name <span className="text-[#94A3B8] dark:text-slate-500 font-normal">(optional)</span></label>
-                <input
-                  type="text"
-                  value={jobName}
-                  onChange={e => setJobName(e.target.value)}
-                  placeholder={`ETL-${Date.now()}`}
-                  className="w-full h-10 px-3 rounded-md border border-[#E2E8F0] dark:border-white/10 bg-white dark:bg-slate-900 text-sm text-[#0F172A] dark:text-slate-100 focus:outline-none focus:border-[#185FA5] focus:ring-3 focus:ring-[rgba(24,95,165,0.15)]"
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setModalOpen(false)}
-                  className="px-4 py-2 text-sm font-medium text-[#64748B] dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-md transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="px-4 py-2 bg-[#0F6E56] hover:bg-[#0A5543] text-white text-sm font-medium rounded-md transition-colors disabled:opacity-50"
-                >
-                  {submitting ? 'Starting...' : 'Start Job'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {/* Level 3: Universal ETL Screen */}
+      {selectedModule && selectedObject && (
+        <UniversalETLScreen
+          module={selectedModule}
+          object={selectedObject}
+          onBack={() => setSelectedObject(null)}
+        />
       )}
     </div>
   );

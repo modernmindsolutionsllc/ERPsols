@@ -1,0 +1,506 @@
+/**
+ * UniversalETLScreen.tsx
+ * ──────────────────────
+ * A single, highly reusable component that adapts to ANY module + business object
+ * combination. Implements the 4-step ETL stepper:
+ *   Extract/Upload -> Validate -> Preview -> Load to Oracle
+ *
+ * DRY: This ONE component handles every business object.
+ * No separate files per object — just pass different props.
+ */
+
+import { useState, useCallback, useRef } from 'react';
+import {
+  Upload, CheckCircle2, FileSpreadsheet, Loader2,
+  ArrowLeft, AlertCircle, Table2, Rocket, X, FileUp,
+} from 'lucide-react';
+import type { ModuleConfig, BusinessObject } from '@/config/dataLoaderConfig';
+
+interface UniversalETLScreenProps {
+  module: ModuleConfig;
+  object: BusinessObject;
+  onBack: () => void;
+}
+
+type ETLStep = 'upload' | 'validate' | 'preview' | 'load';
+
+const STEPS: { key: ETLStep; label: string; icon: typeof Upload }[] = [
+  { key: 'upload', label: 'Extract / Upload', icon: Upload },
+  { key: 'validate', label: 'Validate', icon: CheckCircle2 },
+  { key: 'preview', label: 'Preview Data', icon: Table2 },
+  { key: 'load', label: 'Load to Oracle', icon: Rocket },
+];
+
+// Mock preview data generator
+function generateMockData(objectLabel: string): { headers: string[]; rows: string[][] } {
+  const templates: Record<string, { headers: string[]; rows: string[][] }> = {
+    default: {
+      headers: ['Row #', 'Record ID', 'Name', 'Status', 'Effective Date'],
+      rows: [
+        ['1', 'REC-001', 'John Smith', 'Active', '2024-01-15'],
+        ['2', 'REC-002', 'Maria Garcia', 'Active', '2024-02-01'],
+        ['3', 'REC-003', 'James Wilson', 'Pending', '2024-03-10'],
+        ['4', 'REC-004', 'Sarah Johnson', 'Active', '2024-03-15'],
+        ['5', 'REC-005', 'Robert Chen', 'Active', '2024-04-01'],
+      ],
+    },
+  };
+  return templates[objectLabel] || templates.default;
+}
+
+export function UniversalETLScreen({ module, object, onBack }: UniversalETLScreenProps) {
+  const [currentStep, setCurrentStep] = useState<ETLStep>('upload');
+  const [file, setFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
+  const [validationResult, setValidationResult] = useState<'success' | 'error' | null>(null);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [isDeploying, setIsDeploying] = useState(false);
+  const [deployResult, setDeployResult] = useState<'success' | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const stepIndex = STEPS.findIndex(s => s.key === currentStep);
+
+  // ── Drag & Drop handlers ──
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    const dropped = e.dataTransfer.files[0];
+    if (dropped && dropped.name.endsWith('.xlsx')) {
+      setFile(dropped);
+      setValidationResult(null);
+      setValidationErrors([]);
+    }
+  }, []);
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = e.target.files?.[0];
+    if (selected && selected.name.endsWith('.xlsx')) {
+      setFile(selected);
+      setValidationResult(null);
+      setValidationErrors([]);
+    }
+  }, []);
+
+  // ── Mock Actions ──
+  const handleValidate = useCallback(async () => {
+    setIsValidating(true);
+    setCurrentStep('validate');
+    setValidationResult(null);
+    setValidationErrors([]);
+
+    // Simulate network delay
+    await new Promise(r => setTimeout(r, 2200));
+
+    // Mock: 85% chance of success
+    const success = Math.random() > 0.15;
+    if (success) {
+      setValidationResult('success');
+      setValidationErrors([]);
+    } else {
+      setValidationResult('error');
+      setValidationErrors([
+        'Row 14: Missing required field "Person Number".',
+        'Row 27: Invalid date format in "Effective Start Date".',
+      ]);
+    }
+    setIsValidating(false);
+  }, []);
+
+  const handlePreview = useCallback(() => {
+    setCurrentStep('preview');
+  }, []);
+
+  const handleDeploy = useCallback(async () => {
+    setIsDeploying(true);
+    setCurrentStep('load');
+    await new Promise(r => setTimeout(r, 3000));
+    setDeployResult('success');
+    setIsDeploying(false);
+  }, []);
+
+  const handleReset = useCallback(() => {
+    setFile(null);
+    setCurrentStep('upload');
+    setValidationResult(null);
+    setValidationErrors([]);
+    setDeployResult(null);
+  }, []);
+
+  const mockData = generateMockData(object.label);
+  const ObjectIcon = object.icon;
+
+  return (
+    <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+      {/* ── Back + Header ── */}
+      <button
+        onClick={onBack}
+        className="inline-flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition-colors mb-5 group"
+      >
+        <ArrowLeft size={16} className="transition-transform group-hover:-translate-x-1" />
+        Back to {module.label}
+      </button>
+
+      <div
+        className="relative overflow-hidden rounded-2xl mb-8"
+        style={{ background: `linear-gradient(135deg, ${module.gradientFrom} 0%, ${module.gradientTo} 100%)` }}
+      >
+        <div
+          className="pointer-events-none absolute -top-20 -right-20 h-64 w-64 rounded-full opacity-20"
+          style={{ background: `radial-gradient(circle, ${module.tagColor} 0%, transparent 70%)` }}
+        />
+        <div
+          className="absolute inset-0 opacity-[0.04]"
+          style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
+          }}
+        />
+        <div className="pointer-events-none absolute -bottom-4 -right-4 opacity-10">
+          <ObjectIcon size={160} strokeWidth={0.8} className="text-white" />
+        </div>
+        <div className="relative z-10 px-7 py-7 lg:px-10 lg:py-8">
+          <div className="flex items-center gap-4">
+            <div
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl"
+              style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)' }}
+            >
+              <ObjectIcon size={22} className="text-white" strokeWidth={1.75} />
+            </div>
+            <div>
+              <div
+                className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold mb-1.5 tracking-wide"
+                style={{ background: `${module.accentColor}30`, color: module.tagColor }}
+              >
+                {module.label}
+              </div>
+              <h1 className="text-xl sm:text-2xl font-bold text-white leading-tight">
+                {object.label}
+              </h1>
+              <p className="mt-1 text-sm text-white/50">{object.description}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── ETL Stepper ── */}
+      <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-white/10 rounded-xl p-6 mb-6">
+        <div className="flex items-center justify-between max-w-[700px] mx-auto">
+          {STEPS.map((step, i) => {
+            const StepIcon = step.icon;
+            const status = i < stepIndex ? 'completed' : i === stepIndex ? 'active' : 'pending';
+            return (
+              <div key={step.key} className="flex items-center flex-1">
+                <div className="flex flex-col items-center">
+                  <div
+                    className={`w-9 h-9 rounded-full flex items-center justify-center transition-all duration-300 ${
+                      status === 'completed'
+                        ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/25'
+                        : status === 'active'
+                          ? 'bg-white dark:bg-slate-800 border-2 border-emerald-500 text-emerald-600 dark:text-emerald-400 shadow-lg shadow-emerald-500/20'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500'
+                    }`}
+                  >
+                    {status === 'completed' ? <CheckCircle2 size={18} /> : <StepIcon size={16} />}
+                  </div>
+                  <span className={`text-[11px] mt-2 font-semibold tracking-wide ${
+                    status === 'completed'
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : status === 'active'
+                        ? 'text-slate-900 dark:text-white'
+                        : 'text-slate-400 dark:text-slate-500'
+                  }`}>
+                    {step.label}
+                  </span>
+                </div>
+                {i < STEPS.length - 1 && (
+                  <div className={`flex-1 h-0.5 mx-3 rounded-full transition-colors duration-300 ${
+                    i < stepIndex ? 'bg-emerald-500' : 'bg-slate-200 dark:bg-white/10'
+                  }`} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Step Content ── */}
+      <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-white/10 rounded-xl overflow-hidden">
+
+        {/* STEP 1: Upload */}
+        {currentStep === 'upload' && (
+          <div className="p-8">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">
+              Upload .xlsx File
+            </h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+              Drag and drop your Excel file below, or click to browse. Only <code className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-xs font-mono">.xlsx</code> files are accepted.
+            </p>
+
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`relative border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all duration-200 ${
+                isDragging
+                  ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20 scale-[1.01]'
+                  : file
+                    ? 'border-emerald-400 bg-emerald-50/50 dark:bg-emerald-950/10'
+                    : 'border-slate-300 dark:border-white/15 hover:border-slate-400 dark:hover:border-white/25 hover:bg-slate-50 dark:hover:bg-white/[0.02]'
+              }`}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+
+              {file ? (
+                <div className="flex flex-col items-center gap-3">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-emerald-100 dark:bg-emerald-900/30">
+                    <FileSpreadsheet size={28} className="text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900 dark:text-white">{file.name}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      {(file.size / 1024).toFixed(1)} KB
+                    </p>
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setFile(null); }}
+                    className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-600 font-medium mt-1"
+                  >
+                    <X size={12} /> Remove file
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-3">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800">
+                    <FileUp size={28} className="text-slate-400 dark:text-slate-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                      Drop your <span style={{ color: module.accentColor }}>.xlsx</span> file here
+                    </p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                      or click to browse from your computer
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {file && (
+              <div className="flex justify-end mt-6">
+                <button
+                  onClick={handleValidate}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white transition-all duration-200 hover:shadow-lg"
+                  style={{ background: module.accentColor }}
+                >
+                  <CheckCircle2 size={16} />
+                  Run Validation
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* STEP 2: Validate */}
+        {currentStep === 'validate' && (
+          <div className="p-8">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">
+              Data Validation
+            </h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+              Checking data integrity, required fields, and format compliance for <strong>{object.label}</strong>.
+            </p>
+
+            {isValidating && (
+              <div className="flex flex-col items-center py-12 gap-4">
+                <Loader2 size={40} className="animate-spin text-emerald-500" />
+                <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Validating {file?.name}...</p>
+                <div className="w-64 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                  <div className="h-full bg-emerald-500 rounded-full animate-pulse" style={{ width: '65%' }} />
+                </div>
+              </div>
+            )}
+
+            {validationResult === 'success' && (
+              <div className="rounded-xl border border-emerald-200 dark:border-emerald-800/50 bg-emerald-50 dark:bg-emerald-950/20 p-6">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30">
+                    <CheckCircle2 size={22} className="text-emerald-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">Validation Passed</p>
+                    <p className="text-xs text-emerald-600 dark:text-emerald-400">All 5 records passed schema checks. No errors found.</p>
+                  </div>
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button
+                    onClick={handlePreview}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white transition-all hover:shadow-lg bg-slate-700 hover:bg-slate-800 dark:bg-slate-600 dark:hover:bg-slate-500"
+                  >
+                    <Table2 size={16} />
+                    Preview Data
+                  </button>
+                  <button
+                    onClick={handleDeploy}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white transition-all hover:shadow-lg"
+                    style={{ background: module.accentColor }}
+                  >
+                    <Rocket size={16} />
+                    Deploy to Oracle
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {validationResult === 'error' && (
+              <div className="rounded-xl border border-red-200 dark:border-red-800/50 bg-red-50 dark:bg-red-950/20 p-6">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
+                    <AlertCircle size={22} className="text-red-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-red-800 dark:text-red-300">Validation Failed</p>
+                    <p className="text-xs text-red-600 dark:text-red-400">{validationErrors.length} error(s) found. Fix and re-upload.</p>
+                  </div>
+                </div>
+                <ul className="space-y-2 mb-6">
+                  {validationErrors.map((err, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-red-700 dark:text-red-300">
+                      <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                      {err}
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  onClick={handleReset}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                >
+                  <Upload size={14} />
+                  Re-Upload File
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* STEP 3: Preview */}
+        {currentStep === 'preview' && (
+          <div className="p-8">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">
+                  Data Preview
+                </h2>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  Showing {mockData.rows.length} records from <strong>{file?.name}</strong>
+                </p>
+              </div>
+              <button
+                onClick={handleDeploy}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white transition-all hover:shadow-lg"
+                style={{ background: module.accentColor }}
+              >
+                <Rocket size={16} />
+                Deploy to Oracle
+              </button>
+            </div>
+
+            <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-white/10">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-slate-800/80">
+                    {mockData.headers.map(h => (
+                      <th key={h} className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                  {mockData.rows.map((row, ri) => (
+                    <tr key={ri} className="hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors">
+                      {row.map((cell, ci) => (
+                        <td key={ci} className="px-4 py-3 text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                          {cell}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 4: Load to Oracle */}
+        {currentStep === 'load' && (
+          <div className="p-8">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">
+              Deploy to Oracle
+            </h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+              Loading validated data into Oracle HCM Cloud for <strong>{module.label} &mdash; {object.label}</strong>.
+            </p>
+
+            {isDeploying && (
+              <div className="flex flex-col items-center py-12 gap-4">
+                <div className="relative">
+                  <Loader2 size={48} className="animate-spin" style={{ color: module.accentColor }} />
+                  <Rocket size={18} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white" />
+                </div>
+                <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Deploying records to Oracle Cloud...</p>
+                <div className="w-72 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                  <div
+                    style={{ width: '100%', background: module.accentColor, transition: 'width 3000ms ease-out' }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {deployResult === 'success' && (
+              <div className="rounded-xl border border-emerald-200 dark:border-emerald-800/50 bg-emerald-50 dark:bg-emerald-950/20 p-6 text-center">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30">
+                    <CheckCircle2 size={30} className="text-emerald-600" />
+                  </div>
+                  <div>
+                    <p className="text-base font-bold text-emerald-800 dark:text-emerald-300">Deployment Successful!</p>
+                    <p className="text-sm text-emerald-600 dark:text-emerald-400 mt-1">
+                      5 records loaded into Oracle HCM Cloud.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleReset}
+                    className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white transition-all hover:shadow-lg bg-emerald-600 hover:bg-emerald-700"
+                  >
+                    <Upload size={16} />
+                    Upload Another File
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
