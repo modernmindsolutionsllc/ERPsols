@@ -193,6 +193,11 @@ def _run_single_sql(
         with lock:
             sheets[sheet_name] = df
 
+        try:
+            del csv_data, df
+        except:
+            pass
+
     except Exception as ex:
         user_msg = friendly_bi_error(ex)
         err = f"{name}: {user_msg}"
@@ -266,11 +271,20 @@ def run_sqls_config_generation(
                 bi_logout(url, session_token, http_session=http_session)
             except:
                 pass
+        import gc
+        gc.collect()
 
     if not sheets and errors:
         raise HTTPException(status_code=500, detail=f"All reports failed to execute. Errors: {', '.join(errors)}")
 
     # Generate the in-memory excel file
     excel_buffer = write_br100_workbook_with_index(sheets)
+    
+    try:
+        del sheets
+    except:
+        pass
+    import gc
+    gc.collect()
     
     return excel_buffer, errors

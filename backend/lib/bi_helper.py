@@ -606,21 +606,43 @@ def _extract_xdm_paths_from_folder_response(xml_text: str, folder_path: str) -> 
 
 
 def _extract_base64_payload(xml_text: str) -> str:
-    root = ET.fromstring(xml_text)
-    candidates: list[str] = []
+    try:
+        root = ET.fromstring(xml_text)
+    except Exception as e:
+        match = re.search(r"<[^>]*Return[^>]*>([^<]+)</", xml_text)
+        if match:
+            text = match.group(1).strip()
+            clean_text = "".join(text.split())
+            return clean_text
+        raise RuntimeError(f"XML parse error and no return tag found: {e}")
+
+    best_len = 0
+    best_text = None
+
     for el in root.iter():
-        text = re.sub(r"\s+", "", (el.text or ""))
-        if len(text) < 80:
+        raw_text = el.text
+        if not raw_text:
+            continue
+        if len(raw_text) < 80:
+            continue
+        local_name = el.tag.split("}")[-1] if "}" in el.tag else el.tag
+        is_candidate_tag = "Return" in local_name or local_name in {"reportBytes", "objectData", "item"}
+        if not is_candidate_tag and len(raw_text) < 1000:
+            continue
+        clean_text = "".join(raw_text.split())
+        if len(clean_text) <= best_len:
             continue
         try:
-            base64.b64decode(text, validate=True)
+            base64.b64decode(clean_text[:80], validate=True)
+            base64.b64decode(clean_text, validate=True)
+            best_len = len(clean_text)
+            best_text = clean_text
         except Exception:
             continue
-        candidates.append(text)
 
-    if not candidates:
-        raise RuntimeError("Oracle CatalogService response did not include downloadable object data.")
-    return max(candidates, key=len)
+    if best_text is not None:
+        return best_text
+    raise RuntimeError("Oracle CatalogService response did not include downloadable object data.")
 
 
 def _decode_xdm_payload(b64data: str) -> str:
@@ -841,6 +863,14 @@ def import_oracle_catalog_queries(
                     "source_path": xdm_path,
                     "dataset_name": dataset_name,
                 })
+            # Force garbage collection of large string variables
+            try:
+                del object_resp, xdm_xml, queries
+            except:
+                pass
+            import gc
+            gc.collect()
+
 
         if imported:
             return imported
@@ -855,6 +885,8 @@ def import_oracle_catalog_queries(
                     log("BI logout successful")
             except Exception as exc:
                 log(f"BI logout failed: {exc}")
+        import gc
+        gc.collect()
 
 # ---------------------------------------------------------------------
 # Catalog validation (FIXED to use new URL helpers)
@@ -1086,6 +1118,13 @@ def validate_catalog(username, password, url, env_name, append_log) -> bool:
                 append_log(f"[SUCCESS] Uploaded: {path}")
                 uploaded_reports.append(path)
 
+            try:
+                del resp
+            except Exception:
+                pass
+            import gc
+            gc.collect()
+
         # ---------------------------------------------------------------
         # 6) Summary
         # ---------------------------------------------------------------
@@ -1136,6 +1175,13 @@ def validate_catalog(username, password, url, env_name, append_log) -> bool:
                     append_log("[ERROR] BI Logout failed")
             except Exception as e:
                 append_log(f"[ERROR] Exception during BI logout: {e}")
+
+        try:
+            del dynamic_rows, rows_full, upload_rows
+        except:
+            pass
+        import gc
+        gc.collect()
 
     return success
 

@@ -333,7 +333,7 @@ export function BIPReportingPage() {
         const workbook = XLSX.read(buffer, { type: 'array' });
         const targetSheetName = workbook.SheetNames.length > 1 ? workbook.SheetNames[1] : workbook.SheetNames[0];
         const worksheet = workbook.Sheets[targetSheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { range: 3 });
         
         const cleanJsonData = jsonData.map((row: any) => {
           if (!row || typeof row !== 'object') return row;
