@@ -50,7 +50,7 @@ interface EnvSetupModalProps {
 
 export function EnvSetupModal({ open, onOpenChange, onSuccess }: EnvSetupModalProps) {
   const [projectName, setProjectName] = useState('');
-  const [oracleUrl, setOracleUrl] = useState('https://fa-etaj-saasfademo1.ds-fa.oraclepdemos.com');
+  const [oracleUrl, setOracleUrl] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -93,7 +93,7 @@ export function EnvSetupModal({ open, onOpenChange, onSuccess }: EnvSetupModalPr
       toast.success(`Environment "${projectName}" configured successfully.`);
       const createdEnv = projectName.trim();
       setProjectName('');
-      setOracleUrl('https://fa-etaj-saasfademo1.ds-fa.oraclepdemos.com');
+      setOracleUrl('');
       setUsername('');
       setPassword('');
       onOpenChange(false);
@@ -290,7 +290,7 @@ export function EditCredentialsModal({ open, onOpenChange, currentUsername, curr
         body: JSON.stringify({
           old_env_name: currentEnvName || 'Demo Oracle Fusion',
           env_name: projectName.trim() || 'Demo Oracle Fusion',
-          oracle_url: currentUrl || 'https://fa-etaj-saasfademo1.ds-fa.oraclepdemos.com',
+          oracle_url: currentUrl || '',
           oracle_username: trimmedUser,
           oracle_password: trimmedPass,
         }),
@@ -402,7 +402,7 @@ interface AddAccountModalProps {
 
 export function AddAccountModal({ open, onOpenChange, onSuccess }: AddAccountModalProps) {
   const [envName, setEnvName] = useState('');
-  const [oracleUrl, setOracleUrl] = useState('https://fa-etaj-saasfademo1.ds-fa.oraclepdemos.com');
+  const [oracleUrl, setOracleUrl] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -445,7 +445,7 @@ export function AddAccountModal({ open, onOpenChange, onSuccess }: AddAccountMod
       toast.success(`Account "${username}" added to "${envName}".`);
       const createdEnv = envName.trim();
       setEnvName('');
-      setOracleUrl('https://fa-etaj-saasfademo1.ds-fa.oraclepdemos.com');
+      setOracleUrl('');
       setUsername('');
       setPassword('');
       onOpenChange(false);
