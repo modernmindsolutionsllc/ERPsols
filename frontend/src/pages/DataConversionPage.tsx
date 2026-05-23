@@ -168,7 +168,7 @@ function ModuleGrid({ onSelect }: { onSelect: (mod: ModuleConfig) => void }) {
                 <Icon size={100} strokeWidth={0.8} className="text-white" />
               </div>
 
-              <div className="relative z-10 p-5 min-h-[160px] flex flex-col">
+              <div className="relative z-10 p-5 min-h-[200px] flex flex-col justify-between">
                 <div className="flex items-start justify-between mb-4">
                   <div
                     className="flex h-10 w-10 items-center justify-center rounded-lg transition-transform duration-300 group-hover:scale-110"
