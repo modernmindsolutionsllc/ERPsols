@@ -324,7 +324,6 @@ export function BIPReportingPage() {
         setTableData(cleanJsonData);
         setHasResults(true);
         const workbookName = `${selectedReport.report_name}_${format(new Date(), 'yyyyMMdd_HHmmss')}.xlsx`;
-        setLastWorkbook(response);
         setLastWorkbookName(workbookName);
       }
     } catch { toast.dismiss('run-report'); toast.error('An unexpected error occurred.'); }
@@ -481,7 +480,6 @@ export function BIPReportingPage() {
                                 setOpenCombobox(false);
                                 setHasResults(false);
                                 setTableData([]);
-                                setLastWorkbook(null);
                                 setLastWorkbookName('');
                               }}
                               className="cursor-pointer py-2.5"
