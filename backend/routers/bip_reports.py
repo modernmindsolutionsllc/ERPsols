@@ -193,8 +193,6 @@ def delete_bip_report(
     
     return {"message": "Report configuration deleted successfully."}
 
-
-@router.post("/import-oracle-catalog", response_model=OracleCatalogImportResponse)
 @router.post("/import_oracle_catalog", response_model=OracleCatalogImportResponse)
 def import_oracle_catalog_reports(
     body: OracleCatalogImportRequest,
