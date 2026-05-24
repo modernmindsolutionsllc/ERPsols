@@ -185,7 +185,7 @@ class DisconnectRequest(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class OracleConnectRequest(BaseModel):
-    oracle_url: str = "https://fa-etaj-saasfademo1.ds-fa.oraclepdemos.com"
+    oracle_url: str
     env_name: str = "Demo Oracle Fusion"
     oracle_username: str
     oracle_password: str
@@ -233,7 +233,7 @@ class OracleSessionCreate(BaseModel):
     """Create/update an Oracle environment. Password encrypted via Fernet before DB write."""
     env_name: str
     old_env_name: Optional[str] = None
-    oracle_url: str = "https://fa-etaj-saasfademo1.ds-fa.oraclepdemos.com"
+    oracle_url: str
     oracle_username: str
     oracle_password: str  # plain text in, encrypted before storage
 

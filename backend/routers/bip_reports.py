@@ -77,7 +77,18 @@ def _decrypt_credential(credential: OracleCredential) -> tuple[str, str, str]:
             detail="Failed to decrypt Oracle credentials. Please reconnect your account.",
         )
 
-    url = credential.oracle_url or "https://fa-etaj-saasfademo1.ds-fa.oraclepdemos.com/xmlpserver/services/ExternalReportWSSService"
+    base_url = credential.oracle_url.strip().rstrip("/")
+    if not base_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Oracle URL is missing in the environment configuration.",
+        )
+
+    if "/xmlpserver" not in base_url.lower():
+        url = f"{base_url}/xmlpserver/services/ExternalReportWSSService"
+    else:
+        url = base_url
+
     return credential.oracle_username, password, url
 
 

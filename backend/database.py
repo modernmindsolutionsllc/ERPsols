@@ -24,6 +24,7 @@ from sqlalchemy import (
     ForeignKey,
     UniqueConstraint,
     event,
+    func,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
@@ -67,17 +68,33 @@ def get_connection() -> sqlite3.Connection:
 #  SQLALCHEMY ORM LAYER
 # ═══════════════════════════════════════════════════════════════════════════════
 
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False},  # Required for SQLite + FastAPI
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Enable foreign keys for every raw DBAPI connection SQLAlchemy opens
-@event.listens_for(engine, "connect")
-def _set_sqlite_pragma(dbapi_conn, connection_record):
-    cursor = dbapi_conn.cursor()
-    cursor.execute("PRAGMA foreign_keys = ON")
-    cursor.close()
+if DATABASE_URL:
+    # Standardize postgresql URI scheme
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    
+    # Configure production pool size
+    engine = create_engine(
+        DATABASE_URL,
+        pool_size=10,
+        max_overflow=20,
+        pool_pre_ping=True
+    )
+else:
+    engine = create_engine(
+        SQLALCHEMY_DATABASE_URL,
+        connect_args={"check_same_thread": False},  # Required for SQLite + FastAPI
+    )
+
+# Enable foreign keys for raw SQLite DBAPI connections
+if not DATABASE_URL:
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragma(dbapi_conn, connection_record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys = ON")
+        cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -177,7 +194,7 @@ class OracleCredential(Base):
     id                        = Column(Integer, primary_key=True, autoincrement=True)
     user_id                   = Column(Integer, ForeignKey("users.id"), nullable=False)
     env_name                  = Column(String, nullable=False, default="Demo Oracle Fusion")
-    oracle_url                = Column(String, nullable=False, default="https://fa-etaj-saasfademo1.ds-fa.oraclepdemos.com")
+    oracle_url                = Column(String, nullable=False)
     oracle_username           = Column(String, nullable=False)
     encrypted_oracle_password = Column(String, nullable=False)
     is_active                 = Column(Boolean, nullable=False, default=True)
@@ -243,15 +260,46 @@ def _safe_alter_columns(cursor: sqlite3.Cursor, table_name: str, columns: list[t
 
 def init_db():
     """
-    Two-phase init:
-      1. Raw SQL  → creates roles & users tables, seeds role data
-                    (keeps Auth.py happy)
-      2. SQLAlchemy → creates any NEW tables (config_snapshots,
-                       payroll_records, etc.) and
-                      ALTERs existing tables with new columns (otp_*)
+    Initialise the database schema and seed essential configuration data.
+    Works dynamically for both PostgreSQL (Supabase) and SQLite.
     """
+    DATABASE_URL = os.getenv("DATABASE_URL")
 
-    # ── Phase 1: Legacy raw-SQL bootstrap ──────────────────────────────────────
+    if DATABASE_URL:
+        print("Initialising PostgreSQL/Supabase database schema...")
+        # 1. Automatically create all tables defined in SQLAlchemy ORM
+        Base.metadata.create_all(bind=engine)
+
+        # 2. Seed default roles and bootstrap admins
+        db = SessionLocal()
+        try:
+            # Seed default roles
+            for role_name in ["admin", "enterprise", "user"]:
+                role_exists = db.query(Role).filter(Role.name == role_name).first()
+                if not role_exists:
+                    db.add(Role(name=role_name))
+            db.commit()
+
+            # Bootstrap any configured administrators
+            admin_emails = _bootstrap_admin_emails()
+            if admin_emails:
+                admin_role = db.query(Role).filter(Role.name == "admin").first()
+                if admin_role:
+                    db.query(User).filter(
+                        func.lower(User.email).in_(admin_emails)
+                    ).update({User.role_id: admin_role.id}, synchronize_session=False)
+                    db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"Failed to seed PostgreSQL data: {e}")
+        finally:
+            db.close()
+
+        print("PostgreSQL/Supabase database initialised successfully.")
+        return
+
+    # --- SQLite Fallback Bootstrap ---
+    print("Initialising SQLite database...")
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -318,7 +366,7 @@ def init_db():
     cursor = conn.cursor()
     _safe_alter_columns(cursor, "oracle_credentials", [
         ("env_name", "TEXT DEFAULT 'Demo Oracle Fusion'"),
-        ("oracle_url", "TEXT DEFAULT 'https://fa-etaj-saasfademo1.ds-fa.oraclepdemos.com'"),
+        ("oracle_url", "TEXT"),
         ("is_active", "INTEGER DEFAULT 1"),
     ])
     _safe_alter_columns(cursor, "bip_report_configs", [
@@ -329,9 +377,6 @@ def init_db():
     ])
 
     # ── Drop the old unique constraint on user_id only (migrate to multi-env) ──
-    # SQLite doesn't support DROP CONSTRAINT, so we check if the old index exists
-    # and drop it. The new UniqueConstraint (user_id, env_name) is created by
-    # Base.metadata.create_all() above.
     try:
         cursor.execute("DROP INDEX IF EXISTS ix_oracle_credentials_user_id")
     except sqlite3.OperationalError:
@@ -340,7 +385,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-    print("Database initialised successfully.")
+    print("SQLite database initialised successfully.")
 
 
 if __name__ == "__main__":
