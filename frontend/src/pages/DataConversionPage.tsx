@@ -13,6 +13,9 @@ import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import { DATA_LOADER_CONFIG, type ModuleConfig, type BusinessObject } from '@/config/dataLoaderConfig';
 import { UniversalETLScreen } from '@/components/UniversalETLScreen';
+import { useAuth } from '@/context/AuthContext';
+import { authApi, adminApi } from '@/services/api';
+import type { ApiError } from '@/types';
 import {
   ArrowRightLeft, ShieldCheck, Layers, Cpu,
   ArrowRight, ArrowLeft, Lock, UserPlus, CheckCircle2, Download,
@@ -95,25 +98,81 @@ function ToolWelcomeBanner() {
 //  ADD USER MODAL
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function AddUserModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+function isApiError(res: unknown): res is ApiError {
+  return !!res && typeof res === 'object' && 'error' in res;
+}
+
+function AddUserModal({
+  isOpen,
+  onClose,
+  refreshUser,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  refreshUser: () => Promise<unknown>;
+}) {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'Admin' | 'User'>('User');
   const [isSaving, setIsSaving] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleSaveUser = async () => {
-    if (!email.trim()) {
+  const handleSaveUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    // ── Auto-trim & lowercase to prevent whitespace ghost bugs ────────────
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
       toast.error('Please enter a valid email address.');
       return;
     }
+
     setIsSaving(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1200));
-      toast.success(`User provisioned successfully! (${email})`);
+      // ── Step 1: Create user account via /auth/signup ─────────────────────
+      const signupRes = await authApi.signup({
+        username: cleanEmail.split('@')[0],
+        email: cleanEmail,
+        password: crypto.randomUUID(),   // Random secure password (user logs in via OTP)
+        role: 'user',
+      });
+
+      if (isApiError(signupRes)) {
+        toast.error(signupRes.error.message);
+        return;
+      }
+
+      // ── Step 2: Find newly created user & grant tool access ─────────────
+      const usersRes = await adminApi.getUsers(undefined, cleanEmail);
+
+      if (!isApiError(usersRes)) {
+        const newUser = usersRes.find((u) => u.email === cleanEmail);
+        if (newUser) {
+          // Determine base role mapping & tool_access grant
+          const mappedRole = role === 'Admin' ? 'enterprise' as const : 'user' as const;
+          const toolAccess = [...newUser.tool_access];
+          if (!toolAccess.includes('data_conversion')) {
+            toolAccess.push('data_conversion');
+          }
+
+          const updateRes = await adminApi.updateUser(newUser.id, {
+            role: mappedRole,
+            tool_access: toolAccess,
+          });
+
+          if (isApiError(updateRes)) {
+            // User was created but tool access failed — still report partial success
+            toast.warning(`User created but tool access failed: ${updateRes.error.message}`);
+          }
+        }
+      }
+
+      // ── Step 3: Success — refresh context, close modal, reset form ──────
+      toast.success(`User provisioned and granted Data Conversion access! (${cleanEmail})`);
       setEmail('');
       setRole('User');
       onClose();
+      await refreshUser();
     } catch {
       toast.error('Failed to provision user.');
     } finally {
@@ -126,7 +185,7 @@ function AddUserModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="relative w-full max-w-md mx-4 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl shadow-black/20 border border-slate-200 dark:border-white/10 animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
+      <form onSubmit={handleSaveUser} className="relative w-full max-w-md mx-4 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl shadow-black/20 border border-slate-200 dark:border-white/10 animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100 dark:border-white/5">
           <div className="flex items-center gap-3">
@@ -191,7 +250,7 @@ function AddUserModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
             Cancel
           </Button>
           <Button
-            onClick={handleSaveUser}
+            type="submit"
             disabled={isSaving}
             className="gap-2 bg-[#185FA5] hover:bg-[#124A82] text-white disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -199,7 +258,7 @@ function AddUserModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
             {isSaving ? 'Saving...' : 'Save User'}
           </Button>
         </div>
-      </div>
+      </form>
     </div>
   );
 }
@@ -454,6 +513,7 @@ function BusinessObjectGrid({
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export function DataConversionPage() {
+  const { refreshUser } = useAuth();
   const [selectedModule, setSelectedModule] = useState<ModuleConfig | null>(null);
   const [selectedObject, setSelectedObject] = useState<BusinessObject | null>(null);
   const [isValidating, setIsValidating] = useState(false);
@@ -495,7 +555,11 @@ export function DataConversionPage() {
   return (
     <div className="p-6 lg:p-8 max-w-[1400px] mx-auto animate-in fade-in duration-250">
       {/* Add User Modal */}
-      <AddUserModal isOpen={isAddUserModalOpen} onClose={() => setIsAddUserModalOpen(false)} />
+      <AddUserModal
+        isOpen={isAddUserModalOpen}
+        onClose={() => setIsAddUserModalOpen(false)}
+        refreshUser={refreshUser}
+      />
 
       {/* Always show the welcome banner at Level 1 */}
       {!selectedModule && <ToolWelcomeBanner />}
