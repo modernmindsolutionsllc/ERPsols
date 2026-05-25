@@ -49,7 +49,7 @@ function downloadWorkbook(blob: Blob, filename: string) {
 }
 
 const ORACLE_VALIDATE_SOURCE_FOLDER = '/QuickConfigTool';
-const PREVIEW_ROW_LIMIT = 300;
+const PREVIEW_ROW_LIMIT = 100;
 
 export function BIPReportingPage() {
   const { user } = useAuth();
