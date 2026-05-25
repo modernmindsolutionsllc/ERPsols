@@ -43,14 +43,22 @@ export function useSessionHeartbeat() {
     // Uses fetch(keepalive:true) which properly sends the Authorization header
     // — unlike navigator.sendBeacon which drops custom headers (causing 401s)
 
+    let hasDisconnected = false;
+
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
+      if (document.visibilityState === 'hidden' && !hasDisconnected) {
+        hasDisconnected = true;
         trackingApi.disconnect();
+      } else if (document.visibilityState === 'visible') {
+        hasDisconnected = false;
       }
     };
 
     const handleBeforeUnload = () => {
-      trackingApi.disconnect();
+      if (!hasDisconnected) {
+        hasDisconnected = true;
+        trackingApi.disconnect();
+      }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
