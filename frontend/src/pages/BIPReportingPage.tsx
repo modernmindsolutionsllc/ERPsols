@@ -14,15 +14,9 @@ import {
   bipReportingApi, type OracleStatus, type OracleSessionResponse, type BipReportResponse,
 } from '@/services/api';
 
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
-  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub,
-  DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
-  EnvSetupModal, EditCredentialsModal, AddAccountModal, DeleteAllUsersModal,
-} from '@/components/shared/OracleSessionModals';
 import { Card } from '@/components/ui/card';
+import { useOracleSessions } from '@/hooks/useOracleSessions';
+import { OracleSessionSelector } from '@/components/shared/OracleSessionSelector';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
@@ -55,14 +49,7 @@ export function BIPReportingPage() {
   const { user } = useAuth();
   const canAccess = usePermission('run_bip_report') || useToolAccess('bip_reporting');
 
-  // Oracle session state
-  const [oracleStatus, setOracleStatus] = useState<OracleStatus | null>(null);
-  const [savedSessions, setSavedSessions] = useState<OracleSessionResponse[]>([]);
-  const [activeEnv, setActiveEnv] = useState<OracleSessionResponse | null>(null);
-  const [isEnvSetupOpen, setIsEnvSetupOpen] = useState(false);
-  const [isEditCredsOpen, setIsEditCredsOpen] = useState(false);
-  const [isAddAccountOpen, setIsAddAccountOpen] = useState(false);
-  const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false);
+
 
   // Report state
   const [reports, setReports] = useState<BipReportResponse[]>([]);
@@ -84,25 +71,7 @@ export function BIPReportingPage() {
   const [isCatalogLogOpen, setIsCatalogLogOpen] = useState(false);
   const [catalogOperation, setCatalogOperation] = useState<'deploy' | 'sync'>('deploy');
 
-  const fetchOracleStatus = useCallback(async () => {
-    const res = await bipReportingApi.getOracleStatus();
-    if (!isApiError(res)) setOracleStatus(res);
-  }, []);
 
-  const fetchSessions = useCallback(async () => {
-    const res = await bipReportingApi.getOracleSessions();
-    if (!isApiError(res)) {
-      setSavedSessions(res);
-      if (res.length > 0 && !activeEnv) {
-        // Prefer the environment matching the most-recently-used status
-        const statusEnv = oracleStatus?.env_name;
-        const preferred = statusEnv
-          ? res.find(s => s.env_name === statusEnv)
-          : undefined;
-        setActiveEnv(preferred || res[0]);
-      }
-    }
-  }, [activeEnv, oracleStatus]);
 
   const fetchReports = useCallback(async () => {
     const res = await bipReportingApi.getBipReports();
@@ -147,10 +116,6 @@ export function BIPReportingPage() {
   }, [fetchReports, selectedReport]);
 
   useEffect(() => {
-    async function init() {
-      await fetchOracleStatus();
-    }
-    void init();
     void fetchReports();
   }, []);
 
@@ -168,10 +133,7 @@ export function BIPReportingPage() {
     };
   }, [fetchReports]);
 
-  // Fetch sessions after oracleStatus is available so auto-select uses the correct env
-  useEffect(() => {
-    if (oracleStatus) void fetchSessions();
-  }, [oracleStatus]);
+
 
   const runValidateCatalog = useCallback(async (envName: string) => {
     setCatalogOperation('deploy');
@@ -236,50 +198,19 @@ export function BIPReportingPage() {
     }
   }, [syncOracleQueriesForEnv]);
 
-  const handleSessionRefresh = useCallback(async (newActiveEnvName?: string) => {
-    await fetchOracleStatus();
-    const res = await bipReportingApi.getOracleSessions();
-    if (!isApiError(res)) {
-      setSavedSessions(res);
-      if (res.length === 0) {
-        setActiveEnv(null);
-      } else if (newActiveEnvName) {
-        const target = res.find(s => s.env_name === newActiveEnvName);
-        setActiveEnv(target || res[0]);
-      } else {
-        setActiveEnv(prev => {
-          if (!prev) return res[0];
-          const updated = res.find(s => s.id === prev.id);
-          return updated || res[0];
-        });
-      }
-      if (newActiveEnvName) {
-        await runValidateCatalog(newActiveEnvName);
-      }
-    }
-  }, [fetchOracleStatus, runValidateCatalog]);
-
-  const handleDeleteAll = useCallback(async () => {
-    try {
-      const res = await bipReportingApi.deleteAllOracleSessions();
-      if (isApiError(res)) { toast.error(res.error.message); return; }
-      setSavedSessions([]);
-      setActiveEnv(null);
-      setOracleStatus(null);
-      toast.success('All Oracle credentials purged from the vault.');
-      await fetchOracleStatus();
-    } catch {
-      toast.error('Failed to delete credentials.');
-    }
-  }, [fetchOracleStatus]);
-
-  const handleSwitchEnv = (s: OracleSessionResponse) => {
-    setActiveEnv(s);
-    toast.success(`Switched to "${s.env_name}" (${s.oracle_username})`);
-  };
+  const {
+    oracleStatus,
+    savedSessions,
+    activeEnv,
+    setActiveEnv,
+    handleSessionRefresh,
+    handleDeleteAll,
+    handleSwitchEnv,
+  } = useOracleSessions(async (newActiveEnvName) => {
+    await runValidateCatalog(newActiveEnvName);
+  });
 
   const oracleConnected = oracleStatus?.connected === true;
-  const triggerLabel = oracleConnected ? activeEnv?.env_name || 'Credentials Saved' : 'Connect';
 
   const handleValidateCatalog = async () => {
     if (!activeEnv) { toast.error('Please select an Oracle environment first.'); return; }
@@ -354,63 +285,14 @@ export function BIPReportingPage() {
             <p className="text-gray-500 dark:text-slate-400 mt-2">Select a report from the dropdown, execute against Oracle BIP, and review the data.</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant={oracleConnected ? 'outline' : 'default'} className={oracleConnected ? 'gap-2 border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-500/10' : 'gap-2 bg-[#185FA5] text-white'} size="lg">
-                  <Server className="h-5 w-5" />
-                  {triggerLabel}
-                  <ChevronDown className="h-4 w-4 opacity-50 ml-1" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-[260px] dark:bg-[#0C1425] dark:border-white/10">
-                <DropdownMenuLabel className="px-3 py-2.5">
-                  <div className="flex items-center gap-2.5">
-                    <div className="size-8 rounded-lg flex items-center justify-center" style={{ background: oracleConnected ? 'linear-gradient(135deg,#059669,#10B981)' : 'linear-gradient(135deg,#475569,#64748B)' }}>
-                      <Server size={15} className="text-white" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold truncate dark:text-white">{oracleConnected ? 'Credentials Saved' : 'Not Connected'}</p>
-                      <p className="text-[10px] text-muted-foreground truncate">{activeEnv ? activeEnv.env_name : 'Set up an environment to connect'}</p>
-                    </div>
-                    {oracleConnected && <Zap size={13} className="text-emerald-400 shrink-0" />}
-                  </div>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuGroup>
-                  <DropdownMenuItem onSelect={() => savedSessions.length > 0 ? setIsAddAccountOpen(true) : setIsEnvSetupOpen(true)} className="gap-2.5 px-3 py-2 cursor-pointer">
-                    {savedSessions.length > 0 ? <UserPlus size={14} className="text-emerald-400" /> : <Globe size={14} className="text-blue-400" />}
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium">{savedSessions.length > 0 ? 'Add More Account' : 'Add Account'}</p>
-                      <p className="text-[10px] text-muted-foreground">{savedSessions.length > 0 ? 'Add secondary credentials' : 'Connect to an Oracle environment'}</p>
-                    </div>
-                  </DropdownMenuItem>
-                  {savedSessions.length > 0 && (
-                    <DropdownMenuItem onSelect={() => setIsEditCredsOpen(true)} className="gap-2.5 px-3 py-2 cursor-pointer"><Pencil size={14} className="text-amber-400" /><div className="min-w-0 flex-1"><p className="text-sm font-medium">Edit Credentials</p><p className="text-[10px] text-muted-foreground">Modify active connection</p></div></DropdownMenuItem>
-                  )}
-                </DropdownMenuGroup>
-                {savedSessions.length > 0 && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuSub>
-                      <DropdownMenuSubTrigger className="gap-2.5 px-3 py-2 cursor-pointer"><Users size={14} className="text-purple-400" /><span className="text-sm font-medium">Switch Account</span></DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent className="dark:bg-[#0C1425] dark:border-white/10">
-                        <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground px-3">Available Accounts</DropdownMenuLabel>
-                        {savedSessions.map(s => (
-                          <DropdownMenuItem key={s.id} className="gap-2.5 px-3 py-2 cursor-pointer" onSelect={() => handleSwitchEnv(s)}>
-                            <Key size={13} className={activeEnv?.id === s.id ? 'text-emerald-400' : 'text-muted-foreground'} />
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium flex items-center gap-1.5">{s.env_name}{activeEnv?.id === s.id && <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">ACTIVE</span>}</p>
-                            </div>
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuSubContent>
-                    </DropdownMenuSub>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem variant="destructive" onSelect={() => setIsDeleteAllOpen(true)} className="gap-2.5 px-3 py-2 cursor-pointer"><Trash2 size={14} /><span className="text-sm font-medium">Delete All Users</span></DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <OracleSessionSelector
+              activeEnv={activeEnv}
+              savedSessions={savedSessions}
+              oracleStatus={oracleStatus}
+              onSessionRefresh={handleSessionRefresh}
+              onSwitchEnv={handleSwitchEnv}
+              onDeleteAll={handleDeleteAll}
+            />
           </div>
         </div>
 
@@ -649,18 +531,7 @@ export function BIPReportingPage() {
         </div>
       </div>
 
-      {/* ══════ MODALS ══════ */}
-      <EnvSetupModal open={isEnvSetupOpen} onOpenChange={setIsEnvSetupOpen} onSuccess={handleSessionRefresh} />
-      <EditCredentialsModal 
-        open={isEditCredsOpen} 
-        onOpenChange={setIsEditCredsOpen} 
-        currentUsername={activeEnv?.oracle_username || oracleStatus?.oracle_username || undefined} 
-        currentEnvName={activeEnv?.env_name || undefined}
-        currentUrl={activeEnv?.oracle_url || undefined}
-        onSuccess={handleSessionRefresh} 
-      />
-      <AddAccountModal open={isAddAccountOpen} onOpenChange={setIsAddAccountOpen} onSuccess={handleSessionRefresh} />
-      <DeleteAllUsersModal open={isDeleteAllOpen} onOpenChange={setIsDeleteAllOpen} onConfirm={handleDeleteAll} />
+
 
       {/* ══════ CATALOG DEPLOYMENT LOG DIALOG ══════ */}
       <Dialog open={isCatalogLogOpen} onOpenChange={setIsCatalogLogOpen}>

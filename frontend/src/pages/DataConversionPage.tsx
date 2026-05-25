@@ -13,10 +13,12 @@ import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import { DATA_LOADER_CONFIG, type ModuleConfig, type BusinessObject } from '@/config/dataLoaderConfig';
 import { UniversalETLScreen } from '@/components/UniversalETLScreen';
-import { EnvSetupModal } from '@/components/shared/OracleSessionModals';
+import { useOracleSessions } from '@/hooks/useOracleSessions';
+import { OracleSessionSelector } from '@/components/shared/OracleSessionSelector';
+import { type OracleStatus, type OracleSessionResponse } from '@/services/api';
 import {
   ArrowRightLeft, ShieldCheck, Layers, Cpu,
-  ArrowRight, ArrowLeft, Lock, UserPlus, CheckCircle2, Download,
+  ArrowRight, ArrowLeft, Lock, CheckCircle2, Download,
   Loader2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -102,13 +104,23 @@ function ModuleGrid({
   isValidating,
   onValidateCatalog,
   onDownloadTemplates,
-  onAddOracleEnv,
+  activeEnv,
+  savedSessions,
+  oracleStatus,
+  onSessionRefresh,
+  onSwitchEnv,
+  onDeleteAll,
 }: {
   onSelect: (mod: ModuleConfig) => void;
   isValidating: boolean;
   onValidateCatalog: () => void;
   onDownloadTemplates: () => void;
-  onAddOracleEnv: () => void;
+  activeEnv: OracleSessionResponse | null;
+  savedSessions: OracleSessionResponse[];
+  oracleStatus: OracleStatus | null;
+  onSessionRefresh: (newActiveEnvName?: string) => Promise<void> | void;
+  onSwitchEnv: (s: OracleSessionResponse) => void;
+  onDeleteAll: () => Promise<void> | void;
 }) {
   return (
     <>
@@ -122,14 +134,14 @@ function ModuleGrid({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <Button
-            variant="outline"
-            onClick={onAddOracleEnv}
-            className="gap-2 border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-          >
-            <UserPlus size={15} />
-            Add user
-          </Button>
+          <OracleSessionSelector
+            activeEnv={activeEnv}
+            savedSessions={savedSessions}
+            oracleStatus={oracleStatus}
+            onSessionRefresh={onSessionRefresh}
+            onSwitchEnv={onSwitchEnv}
+            onDeleteAll={onDeleteAll}
+          />
           <Button
             variant="outline"
             onClick={onValidateCatalog}
@@ -346,7 +358,15 @@ export function DataConversionPage() {
   const [selectedModule, setSelectedModule] = useState<ModuleConfig | null>(null);
   const [selectedObject, setSelectedObject] = useState<BusinessObject | null>(null);
   const [isValidating, setIsValidating] = useState(false);
-  const [isEnvModalOpen, setIsEnvModalOpen] = useState(false);
+
+  const {
+    oracleStatus,
+    savedSessions,
+    activeEnv,
+    handleSessionRefresh,
+    handleDeleteAll,
+    handleSwitchEnv,
+  } = useOracleSessions();
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -383,13 +403,6 @@ export function DataConversionPage() {
 
   return (
     <div className="p-6 lg:p-8 max-w-[1400px] mx-auto animate-in fade-in duration-250">
-      {/* Oracle Environment Setup Modal */}
-      <EnvSetupModal
-        open={isEnvModalOpen}
-        onOpenChange={setIsEnvModalOpen}
-        onSuccess={() => toast.success('Oracle Environment saved successfully!')}
-      />
-
       {/* Always show the welcome banner at Level 1 */}
       {!selectedModule && <ToolWelcomeBanner />}
 
@@ -400,7 +413,12 @@ export function DataConversionPage() {
           isValidating={isValidating}
           onValidateCatalog={handleValidateCatalog}
           onDownloadTemplates={handleDownloadTemplates}
-          onAddOracleEnv={() => setIsEnvModalOpen(true)}
+          activeEnv={activeEnv}
+          savedSessions={savedSessions}
+          oracleStatus={oracleStatus}
+          onSessionRefresh={handleSessionRefresh}
+          onSwitchEnv={handleSwitchEnv}
+          onDeleteAll={handleDeleteAll}
         />
       )}
 
