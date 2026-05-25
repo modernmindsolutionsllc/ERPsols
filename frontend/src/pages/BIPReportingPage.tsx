@@ -49,6 +49,7 @@ function downloadWorkbook(blob: Blob, filename: string) {
 }
 
 const ORACLE_VALIDATE_SOURCE_FOLDER = '/QuickConfigTool';
+const PREVIEW_ROW_LIMIT = 300;
 
 export function BIPReportingPage() {
   const { user } = useAuth();
@@ -70,6 +71,7 @@ export function BIPReportingPage() {
   const [hasResults, setHasResults] = useState(false);
   const [tableData, setTableData] = useState<any[]>([]);
   const [lastWorkbookName, setLastWorkbookName] = useState('');
+  const [lastWorkbookBlob, setLastWorkbookBlob] = useState<Blob | null>(null);
   
   // Combobox state
   const [openCombobox, setOpenCombobox] = useState(false);
@@ -290,6 +292,9 @@ export function BIPReportingPage() {
     if (!selectedReport) { toast.error('Please select a report from the menu.'); return; }
     
     setIsRunning(true);
+    setHasResults(false);
+    setTableData([]);
+    setLastWorkbookBlob(null);
     toast.info('Executing report in Oracle BIP...', { id: 'run-report' });
     
     try {
@@ -298,8 +303,14 @@ export function BIPReportingPage() {
       if (isApiError(response)) { toast.error(response.error.message || 'Execution failed.'); }
       else {
         toast.success('Report executed successfully.');
+        setLastWorkbookBlob(response);
+        const workbookName = `${selectedReport.report_name}_${format(new Date(), 'yyyyMMdd_HHmmss')}.xlsx`;
+        setLastWorkbookName(workbookName);
         const buffer = await response.arrayBuffer();
-        const workbook = XLSX.read(buffer, { type: 'array' });
+        const workbook = XLSX.read(buffer, {
+          type: 'array',
+          sheetRows: PREVIEW_ROW_LIMIT + 4,
+        });
         const targetSheetName = workbook.SheetNames.length > 1 ? workbook.SheetNames[1] : workbook.SheetNames[0];
         const worksheet = workbook.Sheets[targetSheetName];
         const jsonData = XLSX.utils.sheet_to_json(worksheet, { range: 3 });
@@ -321,10 +332,8 @@ export function BIPReportingPage() {
           );
         });
         
-        setTableData(cleanJsonData);
+        setTableData(cleanJsonData.slice(0, PREVIEW_ROW_LIMIT));
         setHasResults(true);
-        const workbookName = `${selectedReport.report_name}_${format(new Date(), 'yyyyMMdd_HHmmss')}.xlsx`;
-        setLastWorkbookName(workbookName);
       }
     } catch { toast.dismiss('run-report'); toast.error('An unexpected error occurred.'); }
     finally { setIsRunning(false); }
@@ -572,39 +581,19 @@ export function BIPReportingPage() {
                 </div>
                 <div>
                   <h3 className="text-base font-semibold text-gray-900 dark:text-white">Oracle Execution Results</h3>
-                  <p className="text-[11px] text-muted-foreground">{hasResults ? `${tableData.length} rows retrieved` : 'Execute a report to view the dataset'}</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {hasResults
+                      ? `Previewing ${tableData.length} rows (max ${PREVIEW_ROW_LIMIT} shown). Download the file for the complete result.`
+                      : 'Execute a report to view the dataset'}
+                  </p>
                 </div>
               </div>
               <Button
                 variant="outline"
-                disabled={tableData.length === 0}
+                disabled={!lastWorkbookBlob || !lastWorkbookName}
                 onClick={() => {
-                  if (tableData.length === 0 || !lastWorkbookName) return;
-                  
-                  // Sanitize data: Strip out any keys, rows, or artifacts containing 'GO TO INDEX'
-                  const sanitizedData = tableData.map((row: any) => {
-                    if (!row || typeof row !== 'object') return row;
-                    const cleanRow: any = {};
-                    Object.keys(row).forEach(key => {
-                      if (key.trim().toUpperCase() !== 'GO TO INDEX') {
-                        cleanRow[key] = row[key];
-                      }
-                    });
-                    return cleanRow;
-                  }).filter((row: any) => {
-                    if (!row || typeof row !== 'object') return false;
-                    if (Object.keys(row).length === 0) return false;
-                    return !Object.values(row).some(val => 
-                      typeof val === 'string' && val.trim().toUpperCase() === 'GO TO INDEX'
-                    );
-                  });
-
-                  const ws = XLSX.utils.json_to_sheet(sanitizedData);
-                  const wb = XLSX.utils.book_new();
-                  XLSX.utils.book_append_sheet(wb, ws, "Query Output");
-                  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-                  const blob = new Blob([wbout], { type: 'application/octet-stream' });
-                  downloadWorkbook(blob, lastWorkbookName);
+                  if (!lastWorkbookBlob || !lastWorkbookName) return;
+                  downloadWorkbook(lastWorkbookBlob, lastWorkbookName);
                 }}
                 className="gap-2 text-sm font-medium border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-500/10"
               >
