@@ -620,7 +620,7 @@ export function BIPReportingPage() {
                   <p className="text-base font-medium text-gray-500 dark:text-slate-400">Waiting for report execution...</p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
+                <div className="max-h-[420px] overflow-y-auto overflow-x-hidden">
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-gray-50 dark:bg-slate-900 hover:bg-gray-50 dark:hover:bg-slate-900 border-b-2 dark:border-white/10">
