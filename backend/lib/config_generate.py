@@ -33,10 +33,11 @@ def safe_sheet_name(name: str, used_names: set) -> str:
     return candidate
 
 def csv_to_df(csv_string: str) -> pd.DataFrame:
-    """Convert raw CSV string to a pandas DataFrame."""
+    """Convert raw CSV string to a pandas DataFrame efficiently."""
     try:
-        # Wrap the string in StringIO
-        return pd.read_csv(io.StringIO(csv_string))
+        # Bypasses heavy type inference by reading everything as strings (dtype=str)
+        # and processes chunk-by-chunk using low_memory=True to keep RAM extremely low.
+        return pd.read_csv(io.StringIO(csv_string), dtype=str, low_memory=True)
     except Exception as e:
         raise RuntimeError(f"Failed to parse CSV: {e}")
 
@@ -51,7 +52,7 @@ def write_br100_workbook_with_index(sheets_dict: dict) -> io.BytesIO:
     Outputs to an in-memory BytesIO buffer.
     """
     output = io.BytesIO()
-    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+    workbook = xlsxwriter.Workbook(output, {'in_memory': True, 'constant_memory': True})
     
     # formats
     header_fmt = workbook.add_format({"bold": True, "border": 1, "align": "center", "valign": "vcenter", "bg_color": "#E6F0FA"})
