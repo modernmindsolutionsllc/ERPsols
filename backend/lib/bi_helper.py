@@ -1294,11 +1294,11 @@ def run_bi_sql_in_session(soap_url, session_token, report_path, template, sql_qu
     import gc
     gc.collect()
 
-    decoded = base64.b64decode(b64_text).decode("utf-8-sig")
+    decoded = base64.b64decode(b64_text)
     del b64_text
     gc.collect()
 
-    print(f"[SUCCESS] ORACLE RETURNED DATA: {len(decoded)} chars, first 200: {decoded[:200]}")
+    print(f"[SUCCESS] ORACLE RETURNED DATA: {len(decoded)} bytes")
     return decoded
 
 #Convert low-level BI / SOAP / HTTP errors into user-friendly messages.

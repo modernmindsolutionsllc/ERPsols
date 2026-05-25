@@ -1,295 +1,258 @@
-# lib/config_generate.py
-
-import io
-import pandas as pd
-import xlsxwriter
-from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from threading import Lock
-from fastapi import HTTPException
 import csv
+import io
+import os
+import tempfile
+
+import xlsxwriter
+from fastapi import HTTPException
 
 from lib.bi_helper import (
     bi_login,
     bi_logout,
-    get_bip_PublicReportService_url,
     friendly_bi_error,
-    run_bi_sql_in_session,
+    get_bip_PublicReportService_url,
     get_dynamic_sql_report_path,
+    run_bi_sql_in_session,
 )
 
-DEFAULT_COMPARE_THREADS = 10
 
-def safe_sheet_name(name: str, used_names: set) -> str:
+def safe_sheet_name(name: str, used_names: set[str]) -> str:
     """Ensure a safe sheet name (<=31 chars, no invalid chars, unique)."""
-    safe = "".join(ch if ch not in '[]:*?/\\' else '_' for ch in name)[:31]
-    candidate = safe
+    safe = "".join(ch if ch not in '[]:*?/\\' else "_" for ch in name)[:31]
+    candidate = safe or "Sheet"
     counter = 2
     while candidate in used_names:
         tail = f" ({counter})"
-        candidate = (safe[:max(1, 31 - len(tail))]) + tail
+        candidate = f"{safe[:max(1, 31 - len(tail))]}{tail}"
         counter += 1
     used_names.add(candidate)
     return candidate
 
-def csv_to_df(csv_string: str) -> pd.DataFrame:
-    """Convert raw CSV string to a pandas DataFrame efficiently."""
-    try:
-        # Bypasses heavy type inference by reading everything as strings (dtype=str)
-        # and processes chunk-by-chunk using low_memory=True to keep RAM extremely low.
-        return pd.read_csv(io.StringIO(csv_string), dtype=str, low_memory=True)
-    except Exception as e:
-        raise RuntimeError(f"Failed to parse CSV: {e}")
 
-def sanitize_df_for_storage(df: pd.DataFrame) -> pd.DataFrame:
-    """Basic cleanup of DataFrame."""
-    # Convert all columns to string to avoid serialization issues
-    return df.astype(str).replace("nan", "")
+def _create_formats(workbook: xlsxwriter.Workbook) -> dict[str, xlsxwriter.format.Format]:
+    return {
+        "header": workbook.add_format(
+            {
+                "bold": True,
+                "border": 1,
+                "align": "center",
+                "valign": "vcenter",
+                "bg_color": "#E6F0FA",
+            }
+        ),
+        "cell": workbook.add_format({"border": 1, "valign": "top"}),
+        "title": workbook.add_format({"bold": True, "font_size": 14}),
+        "link": workbook.add_format({"font_color": "blue", "underline": True}),
+        "module_header": workbook.add_format({"bold": True, "font_size": 11}),
+        "go_index": workbook.add_format(
+            {"bold": True, "font_color": "blue", "underline": True}
+        ),
+        "error": workbook.add_format({"border": 1, "font_color": "red"}),
+    }
 
-def write_br100_workbook_with_index(sheets_dict: dict) -> io.BytesIO:
-    """
-    Create a BR100-style Excel workbook with an index sheet and one worksheet per SQL result.
-    Outputs to an in-memory BytesIO buffer.
-    """
-    output = io.BytesIO()
-    workbook = xlsxwriter.Workbook(output, {'in_memory': True, 'constant_memory': True})
-    
-    # formats
-    header_fmt = workbook.add_format({"bold": True, "border": 1, "align": "center", "valign": "vcenter", "bg_color": "#E6F0FA"})
-    cell_fmt = workbook.add_format({"border": 1, "valign": "top"})
-    title_fmt = workbook.add_format({"bold": True, "font_size": 14})
-    link_fmt = workbook.add_format({'font_color': 'blue', 'underline': True})
-    module_hdr_fmt = workbook.add_format({"bold": True, "font_size": 11})
-    go_index_fmt = workbook.add_format({'bold': True, 'font_color': 'blue', 'underline': True})
 
-    # build mapping: module -> list of (query_display_name, sheet_name)
-    modules = {}
-    used_sheet_names = set()
+def _build_sheet_plan(
+    sql_items: list[tuple[str, str, str]]
+) -> list[dict[str, str]]:
+    used_sheet_names: set[str] = set()
+    plan: list[dict[str, str]] = []
 
-    for key in sheets_dict.keys():
-        if ' - ' in key:
-            left, qname = key.split(' - ', 1)
-            mod = left.strip()
-        else:
-            mod = "Misc"
-            qname = key
-
-        qname = qname.strip()
-        raw_sheet = qname[:28]
+    for module, report_name, sql_query in sql_items:
+        raw_sheet = str(report_name).strip()[:28]
         sheet_name = safe_sheet_name(raw_sheet, used_sheet_names)
-        modules.setdefault(mod, []).append((qname, sheet_name))
+        plan.append(
+            {
+                "module": str(module).strip() or "Misc",
+                "report_name": str(report_name).strip() or "Untitled Report",
+                "sql_query": sql_query,
+                "sheet_name": sheet_name,
+            }
+        )
 
-    # Index sheet
+    return plan
+
+
+def _write_index_sheet(
+    workbook: xlsxwriter.Workbook,
+    sheet_plan: list[dict[str, str]],
+    formats: dict[str, xlsxwriter.format.Format],
+) -> str:
     index_name = "Index"
-    index_ws = workbook.add_worksheet(index_name[:31])
+    index_ws = workbook.add_worksheet(index_name)
+    index_ws.write(0, 0, "Configuration Workbook - Index", formats["title"])
 
-    row = 0
-    col = 0
-    index_ws.write(row, col, "Configuration Workbook - Index", title_fmt)
-    row += 2
+    row = 2
+    current_module = None
+    sequence = 1
 
-    for mod, queries in modules.items():
-        index_ws.write(row, col, f"Module: {mod}", module_hdr_fmt)
-        row += 1
-
-        seq = 1
-        for qname, sheet_name in queries:
-            index_ws.write(row, col, seq)
-            index_ws.write_url(
-                row,
-                col + 1,
-                f"internal:'{sheet_name}'!A1",
-                link_fmt,
-                string=qname,
-            )
-            seq += 1
+    for entry in sheet_plan:
+        module = entry["module"]
+        if module != current_module:
+            current_module = module
+            sequence = 1
+            index_ws.write(row, 0, f"Module: {module}", formats["module_header"])
             row += 1
+
+        index_ws.write(row, 0, sequence)
+        index_ws.write_url(
+            row,
+            1,
+            f"internal:'{entry['sheet_name']}'!A1",
+            formats["link"],
+            string=entry["report_name"],
+        )
+        sequence += 1
         row += 1
 
     index_ws.set_column(0, 0, 10)
     index_ws.set_column(1, 1, 40)
-
-    # Data sheets
-    for key, df in sheets_dict.items():
-        if ' - ' in key:
-            left, qname = key.split(' - ', 1)
-            mod = left.strip()
-        else:
-            mod = "Misc"
-            qname = key
-
-        qname = qname.strip()
-
-        pair_list = modules.get(mod, [])
-        sheet_name = None
-        for candidate_qname, sname in pair_list:
-            if candidate_qname == qname:
-                sheet_name = sname
-                break
-        
-        ws = workbook.add_worksheet(sheet_name)
-        ws.write_url(0, 0, f"internal:'{index_name}'!A1", go_index_fmt, string="Go to Index")
-        ws.write(1, 0, qname, title_fmt)
-
-        data_start_row = 3
-        try:
-            if not isinstance(df, pd.DataFrame):
-                df = pd.DataFrame(df)
-        except Exception:
-            df = pd.DataFrame(df)
-
-        if df is None or df.empty:
-            ws.write(data_start_row, 0, "(No data returned)", cell_fmt)
-            ws.set_column(0, 0, 30)
-            continue
-
-        for cidx, colname in enumerate(df.columns):
-            ws.write(data_start_row, cidx, str(colname), header_fmt)
-
-        for r_idx, row_vals in enumerate(df.itertuples(index=False), start=data_start_row + 1):
-            for cidx, val in enumerate(row_vals):
-                ws.write(r_idx, cidx, str(val), cell_fmt)
-
-        for cidx, colname in enumerate(df.columns):
-            try:
-                max_len = max(df[colname].astype(str).map(len).max(), len(str(colname)))
-                ws.set_column(cidx, cidx, min(max(8, max_len + 2), 60))
-            except Exception:
-                ws.set_column(cidx, cidx, 20)
-
-    # VERY IMPORTANT: Close workbook, then seek buffer to 0 so it can be read
-    workbook.close()
-    output.seek(0)
-    return output
+    return index_name
 
 
-def _run_single_sql(
-    soap_url,
-    session_token,
-    dyn_report_path,
-    dyn_template,
-    mod,
-    name,
-    sqltext,
-    sheets,
-    errors,
-    lock,
-    http_session=None
-):
-    sheet_name = f"{mod} - {name}"
+def _write_csv_sheet(
+    workbook: xlsxwriter.Workbook,
+    entry: dict[str, str],
+    csv_bytes: bytes | None,
+    index_name: str,
+    formats: dict[str, xlsxwriter.format.Format],
+    error_message: str | None = None,
+) -> None:
+    worksheet = workbook.add_worksheet(entry["sheet_name"])
+    worksheet.write_url(
+        0,
+        0,
+        f"internal:'{index_name}'!A1",
+        formats["go_index"],
+        string="Go to Index",
+    )
+    worksheet.write(1, 0, entry["report_name"], formats["title"])
 
-    try:
-        csv_data = run_bi_sql_in_session(
-            soap_url,
-            session_token,
-            dyn_report_path,
-            dyn_template,
-            sqltext,
-            http_session=http_session
-        )
+    data_row = 3
+    if error_message:
+        worksheet.write(data_row, 0, f"Execution failed: {error_message}", formats["error"])
+        worksheet.set_column(0, 0, min(max(len(error_message) + 18, 30), 80))
+        return
 
-        df = csv_to_df(csv_data)
-        del csv_data
-        import gc
-        gc.collect()
+    if not csv_bytes:
+        worksheet.write(data_row, 0, "(No data returned)", formats["cell"])
+        worksheet.set_column(0, 0, 30)
+        return
 
-        df = sanitize_df_for_storage(df)
+    buffer = io.BytesIO(csv_bytes)
+    text_stream = io.TextIOWrapper(buffer, encoding="utf-8-sig", newline="")
+    reader = csv.reader(text_stream)
 
-        with lock:
-            sheets[sheet_name] = df
+    max_widths: list[int] = []
+    wrote_row = False
 
-        try:
-            del df
-        except:
-            pass
+    for row_index, row in enumerate(reader, start=data_row):
+        wrote_row = True
+        row_format = formats["header"] if row_index == data_row else formats["cell"]
 
-    except Exception as ex:
-        user_msg = friendly_bi_error(ex)
-        err = f"{name}: {user_msg}"
-        with lock:
-            errors.append(err)
-            sheets[sheet_name] = pd.DataFrame()
+        for column_index, value in enumerate(row):
+            cell_text = value if value is not None else ""
+            worksheet.write(row_index, column_index, cell_text, row_format)
+
+            width = min(max(len(cell_text), 8), 60)
+            if column_index >= len(max_widths):
+                max_widths.append(width)
+            else:
+                max_widths[column_index] = min(max(max_widths[column_index], width), 60)
+
+    if not wrote_row:
+        worksheet.write(data_row, 0, "(No data returned)", formats["cell"])
+        worksheet.set_column(0, 0, 30)
+        return
+
+    for column_index, width in enumerate(max_widths):
+        worksheet.set_column(column_index, column_index, width + 2)
 
 
 def run_sqls_config_generation(
     username: str,
     password: str,
     url: str,
-    sql_items: list[tuple[str, str, str]], # [(module, report_name, sql_query)]
-):
+    sql_items: list[tuple[str, str, str]],
+) -> tuple[str, list[str]]:
     """
-    Executes a list of SQL queries against an Oracle BI server, parses the resulting CSVs,
-    and constructs a BR100-style Excel workbook in an in-memory BytesIO buffer.
-    Returns: (BytesIO_buffer, list_of_errors)
+    Execute SQLs against Oracle BI and build the workbook directly on disk.
+    This avoids holding the entire Oracle CSV payload and final Excel file in RAM.
     """
-    # Point directly to the finalized path using the active user's case-sensitive username
-    dyn_report_path = get_dynamic_sql_report_path(username)
-    dyn_template = "blank_en_US"
-    
-    session_token = None
-    http_session = None
-    sheets = {}
-    errors = []
-    lock = Lock()
-
     if not sql_items:
         raise HTTPException(status_code=400, detail="No SQLs selected for execution.")
 
-    MAX_THREADS = min(DEFAULT_COMPARE_THREADS, len(sql_items))
+    dyn_report_path = get_dynamic_sql_report_path(username)
+    dyn_template = "blank_en_US"
+    sheet_plan = _build_sheet_plan(sql_items)
+
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+    temp_path = temp_file.name
+    temp_file.close()
+
+    workbook = xlsxwriter.Workbook(temp_path, {"constant_memory": True})
+    formats = _create_formats(workbook)
+    index_name = _write_index_sheet(workbook, sheet_plan, formats)
+
+    session_token = None
+    http_session = None
+    errors: list[str] = []
+    generated_count = 0
 
     try:
-        session_token, http_session = bi_login(url, username, password)
-        soap_url = get_bip_PublicReportService_url(url)
+        try:
+            session_token, http_session = bi_login(url, username, password)
+            soap_url = get_bip_PublicReportService_url(url)
 
-        if not session_token:
-            raise HTTPException(status_code=400, detail="Unable to login to Oracle BI. Please check credentials.")
-    except Exception as e:
-        user_msg = friendly_bi_error(e)
-        raise HTTPException(status_code=400, detail=f"Oracle BI Login Failed: {user_msg}")
+            if not session_token:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Unable to login to Oracle BI. Please check credentials.",
+                )
+        except Exception as exc:
+            user_msg = friendly_bi_error(exc)
+            raise HTTPException(
+                status_code=400, detail=f"Oracle BI Login Failed: {user_msg}"
+            ) from exc
 
-    try:
-        with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
-            futures = [
-                executor.submit(
-                    _run_single_sql,
+        for entry in sheet_plan:
+            try:
+                csv_bytes = run_bi_sql_in_session(
                     soap_url,
                     session_token,
                     dyn_report_path,
                     dyn_template,
-                    mod,
-                    name,
-                    sqltext,
-                    sheets,
-                    errors,
-                    lock,
-                    http_session
+                    entry["sql_query"],
+                    http_session=http_session,
                 )
-                for mod, name, sqltext in sql_items
-            ]
-
-            for f in as_completed(futures):
-                f.result() # Will raise any unexpected thread exceptions
-                
+                _write_csv_sheet(workbook, entry, csv_bytes, index_name, formats)
+                generated_count += 1
+            except Exception as exc:
+                user_msg = friendly_bi_error(exc)
+                errors.append(f"{entry['report_name']}: {user_msg}")
+                _write_csv_sheet(
+                    workbook,
+                    entry,
+                    None,
+                    index_name,
+                    formats,
+                    error_message=user_msg,
+                )
     finally:
         if session_token:
             try:
                 bi_logout(url, session_token, http_session=http_session)
-            except:
+            except Exception:
                 pass
-        import gc
-        gc.collect()
+        workbook.close()
 
-    if not sheets and errors:
-        raise HTTPException(status_code=500, detail=f"All reports failed to execute. Errors: {', '.join(errors)}")
+    if generated_count == 0:
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
+        raise HTTPException(
+            status_code=500,
+            detail=f"All reports failed to generate. Errors: {', '.join(errors)}",
+        )
 
-    # Generate the in-memory excel file
-    excel_buffer = write_br100_workbook_with_index(sheets)
-    
-    try:
-        del sheets
-    except:
-        pass
-    import gc
-    gc.collect()
-    
-    return excel_buffer, errors
+    return temp_path, errors

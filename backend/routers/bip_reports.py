@@ -7,11 +7,14 @@ Patched for multi-environment support: execution routes now filter
 credentials by BOTH user_id AND env_name.
 """
 
+import os
 from typing import List, Tuple
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.background import BackgroundTask
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse
 
 from database import get_db, BipReportConfig, OracleCredential
 from dependencies import require_tool_access
@@ -103,6 +106,13 @@ def _effective_sql_text(cfg: BipReportConfig) -> str | None:
         except Exception:
             return None
     return None
+
+
+def _cleanup_temp_file(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -341,25 +351,18 @@ def execute_reports(
         )
 
     # 3. Execute ETL
-    excel_buffer, errors = run_sqls_config_generation(
+    temp_path, _errors = run_sqls_config_generation(
         username=username,
         password=password,
         url=oracle_url,
         sql_items=sql_items,
     )
 
-    if excel_buffer.getbuffer().nbytes == 0:
-        raise HTTPException(
-            status_code=500,
-            detail=f"All reports failed to generate. Errors: {', '.join(errors)}",
-        )
-
-    excel_buffer.seek(0)
-    headers = {"Content-Disposition": 'attachment; filename="Oracle_Config_Extract.xlsx"'}
-    return StreamingResponse(
-        excel_buffer,
+    return FileResponse(
+        temp_path,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers=headers,
+        filename="Oracle_Config_Extract.xlsx",
+        background=BackgroundTask(_cleanup_temp_file, temp_path),
     )
 
 
@@ -378,27 +381,20 @@ def execute_direct_sql(
     credential = _get_oracle_credential(db, user_id, body.env_name)
     username, password, oracle_url = _decrypt_credential(credential)
 
-    excel_buffer, errors = run_sqls_config_generation(
+    temp_path, _errors = run_sqls_config_generation(
         username=username,
         password=password,
         url=oracle_url,
         sql_items=[(body.module, body.report_name, body.sql_query)],
     )
 
-    if excel_buffer.getbuffer().nbytes == 0:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Report failed to generate. Errors: {', '.join(errors)}",
-        )
-
     safe_name = "".join(
         ch if ch.isalnum() or ch in ("_", "-") else "_" for ch in body.report_name
     ).strip("_")
 
-    excel_buffer.seek(0)
-    headers = {"Content-Disposition": f'attachment; filename="{safe_name or "BIP_Report"}.xlsx"'}
-    return StreamingResponse(
-        excel_buffer,
+    return FileResponse(
+        temp_path,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers=headers,
+        filename=f'{safe_name or "BIP_Report"}.xlsx',
+        background=BackgroundTask(_cleanup_temp_file, temp_path),
     )
