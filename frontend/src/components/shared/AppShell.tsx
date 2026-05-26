@@ -178,7 +178,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             {user && (
               <>
                 <span
-                  className="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-white ml-2"
+                  className="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-white ml-2 capitalize"
                   style={{ backgroundColor: roleColor + '33', border: `1px solid ${roleColor}66` }}
                 >
                   {user.role}

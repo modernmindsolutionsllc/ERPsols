@@ -157,11 +157,16 @@ def update_user(
 
     if body.role is not None:
         role_name = body.role.lower().strip()
+        if role_name not in ["admin", "user"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Role must be exactly 'admin' or 'user'.",
+            )
         role = db.query(Role).filter(Role.name == role_name).first()
         if not role:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Role '{body.role}' not found in the roles table.",
+                detail=f"Role '{body.role}' not found in the database roles table.",
             )
         user.role_id = role.id
 

@@ -126,7 +126,7 @@ class BIPRequest(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 ToolKey = Literal["config_snapshot", "data_conversion", "payroll", "bip_reporting"]
-AssignableRole = Literal["enterprise", "user"]
+AssignableRole = Literal["admin", "user"]
 
 
 class ToolAccessResponse(BaseModel):
@@ -136,7 +136,7 @@ class ToolAccessResponse(BaseModel):
 
 
 class AdminUserUpdateRequest(BaseModel):
-    role: Optional[str] = None
+    role: Optional[AssignableRole] = None
     tool_access: Optional[list[ToolKey]] = None
     is_restricted: Optional[bool] = None
 
