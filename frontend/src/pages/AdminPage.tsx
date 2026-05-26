@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import type { ACPUser, AdminTool, ApiError, ToolKey } from '@/types';
 import {
   Search, Users, ShieldAlert, ShieldCheck, Clock, Filter, Loader2, RefreshCw,
-  KeyRound, Trash2, ArrowRight, PlusCircle, FileSpreadsheet,
+  KeyRound, Trash2, ArrowRight, PlusCircle, FileSpreadsheet, Lock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -56,6 +56,24 @@ export function AdminPage() {
   const [reportsLoading, setReportsLoading] = useState(true);
   const [reportSearchQuery, setReportSearchQuery] = useState('');
   const { user: currentUser, refreshUser } = useAuth();
+  const [updatingRoleFor, setUpdatingRoleFor] = useState<string | null>(null);
+
+  async function handleRoleChange(userId: string, newRole: string) {
+    setUpdatingRoleFor(userId);
+    try {
+      const res = await adminApi.updateUser(Number(userId), { role: newRole as any });
+      if (isApiError(res)) {
+        toast.error(res.error.message);
+      } else {
+        setUsers(prev => prev.map(u => String(u.id) === userId ? { ...u, role: newRole } : u));
+        toast.success('User role updated successfully!');
+      }
+    } catch {
+      toast.error('An unexpected error occurred while updating user role.');
+    } finally {
+      setUpdatingRoleFor(null);
+    }
+  }
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -376,15 +394,16 @@ export function AdminPage() {
                       <td className="px-4 py-3 text-sm text-[#0F172A] dark:text-slate-100 font-medium">{u.email}</td>
                       <td className="px-4 py-3 text-sm text-[#334155] dark:text-slate-300">{u.username}</td>
                       <td className="px-4 py-3">
-                        <span
-                          className="text-xs font-semibold px-2.5 py-1 rounded-full"
-                          style={{
-                            color: roleColor,
-                            backgroundColor: roleColor + '1A',
-                          }}
+                        <select
+                          value={u.role}
+                          disabled={updatingRoleFor === String(u.id)}
+                          onChange={(e) => handleRoleChange(String(u.id), e.target.value)}
+                          className="text-xs font-semibold rounded-md border border-gray-300 px-2 py-1 bg-white focus:ring-[#185FA5] outline-none transition-colors"
                         >
-                          {u.role}
-                        </span>
+                          <option value="admin">Admin</option>
+                          <option value="enterprise">Enterprise</option>
+                          <option value="user">User</option>
+                        </select>
                       </td>
                       <td className="px-4 py-3 min-w-[280px]">
                         <div className="flex flex-wrap gap-1.5">
@@ -532,13 +551,17 @@ export function AdminPage() {
                     <TableCell className="text-[#334155] dark:text-slate-300 font-medium">{report.report_name}</TableCell>
                     <TableCell className="text-[#64748B] dark:text-slate-400 text-sm">{report.description || '-'}</TableCell>
                     <TableCell className="text-center">
-                      <button
-                        onClick={() => handleDeleteReport(report.id, report.report_name)}
-                        className="inline-flex items-center justify-center p-1.5 rounded-md border border-[#DC2626]/30 text-[#DC2626] hover:bg-[#FEF2F2] dark:hover:bg-[#450A0A] transition-colors"
-                        title="Delete report configuration"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      {report.report_name.includes("Dynamic SQL Executor DM") ? (
+                        <Lock className="w-4 h-4 text-gray-400 cursor-not-allowed mx-auto" title="System Report - Cannot be deleted" />
+                      ) : (
+                        <button
+                          onClick={() => handleDeleteReport(report.id, report.report_name)}
+                          className="inline-flex items-center justify-center p-1.5 rounded-md border border-[#DC2626]/30 text-[#DC2626] hover:bg-[#FEF2F2] dark:hover:bg-[#450A0A] transition-colors"
+                          title="Delete report configuration"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
