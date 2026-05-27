@@ -79,20 +79,11 @@ def require_role(*allowed_roles: str):
 
 
 def send_otp_email(user_email: str, otp_code: str) -> None:
-    """
-<<<<<<< Updated upstream
-    Send a 6-digit OTP login code over SMTP.
-    """
+    # Send a 6-digit OTP login code.
+    # Prefers Brevo HTTPS REST API when BREVO_API_KEY is configured. 
+    # Falls back to alternative setups if missing.
+    
     text_body, html_body = _build_otp_email_bodies(otp_code)
-
-=======
-    Send a 6-digit OTP login code.
-
-    Prefers Brevo's HTTPS REST API when BREVO_API_KEY is configured (works on free Render
-    instances). Falls back to Resend API or Gmail SMTP for local/alternative setups.
-    """
-    text_body, html_body = _build_otp_email_bodies(otp_code)
-
     brevo_api_key = os.environ.get("BREVO_API_KEY")
     if brevo_api_key:
         from_email = os.environ.get("SMTP_FROM_EMAIL") or os.environ.get("SENDER_EMAIL")
@@ -126,7 +117,6 @@ def send_otp_email(user_email: str, otp_code: str) -> None:
         )
         return
 
->>>>>>> Stashed changes
     sender_email = os.environ.get("SENDER_EMAIL")
     sender_password = os.environ.get("SENDER_EMAIL_PASSWORD")
     smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
@@ -233,8 +223,6 @@ def _build_otp_email_bodies(otp_code: str) -> tuple[str, str]:
     """
     return text_body, html_body
 
-<<<<<<< Updated upstream
-=======
 
 def _send_brevo_email(
     api_key: str,
@@ -308,7 +296,6 @@ def _send_resend_email(
         raise RuntimeError(f"Failed to send OTP email via Resend: {details}") from exc
 
 
->>>>>>> Stashed changes
 def _send_smtp_email(
     smtp_host: str,
     smtp_port: int,
