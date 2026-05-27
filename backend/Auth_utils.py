@@ -15,7 +15,6 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 import jwt
-import requests
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
@@ -81,31 +80,26 @@ def require_role(*allowed_roles: str):
 
 def send_otp_email(user_email: str, otp_code: str) -> None:
     """
-    Send a 6-digit OTP login code.
-
-    Prefers an HTTPS email API when RESEND_API_KEY is configured, which works on
-    free Render instances. Falls back to Gmail SMTP for local or paid setups.
+    Send a 6-digit OTP login code over SMTP.
     """
     text_body, html_body = _build_otp_email_bodies(otp_code)
 
-    resend_api_key = os.environ.get("RESEND_API_KEY")
-    if resend_api_key:
-        from_email = os.environ.get("RESEND_FROM_EMAIL") or os.environ.get("SENDER_EMAIL")
-        if not from_email:
-            raise RuntimeError(
-                "RESEND_FROM_EMAIL or SENDER_EMAIL must be set in environment."
-            )
-        _send_resend_email(
-            resend_api_key=resend_api_key,
-            from_email=from_email,
-            user_email=user_email,
-            text_body=text_body,
-            html_body=html_body,
-        )
-        return
-
     sender_email = os.environ.get("SENDER_EMAIL")
     sender_password = os.environ.get("SENDER_EMAIL_PASSWORD")
+    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
+    smtp_port = int(os.environ.get("SMTP_PORT", "465"))
+    smtp_use_ssl = os.environ.get("SMTP_USE_SSL", "true").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    smtp_starttls = os.environ.get("SMTP_STARTTLS", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
     if not sender_email or not sender_password:
         raise RuntimeError(
@@ -122,13 +116,33 @@ def send_otp_email(user_email: str, otp_code: str) -> None:
     context = ssl.create_default_context()
 
     try:
-        _send_smtp_email(sender_email, sender_password, user_email, msg.as_string(), context)
+        _send_smtp_email(
+            smtp_host=smtp_host,
+            smtp_port=smtp_port,
+            smtp_use_ssl=smtp_use_ssl,
+            smtp_starttls=smtp_starttls,
+            sender_email=sender_email,
+            sender_password=sender_password,
+            user_email=user_email,
+            message=msg.as_string(),
+            context=context,
+        )
     except ssl.SSLCertVerificationError as exc:
         if os.environ.get("SMTP_ALLOW_INSECURE_TLS", "").lower() not in {"1", "true", "yes"}:
             raise RuntimeError("SMTP TLS certificate verification failed.") from exc
 
         insecure_context = ssl._create_unverified_context()
-        _send_smtp_email(sender_email, sender_password, user_email, msg.as_string(), insecure_context)
+        _send_smtp_email(
+            smtp_host=smtp_host,
+            smtp_port=smtp_port,
+            smtp_use_ssl=smtp_use_ssl,
+            smtp_starttls=smtp_starttls,
+            sender_email=sender_email,
+            sender_password=sender_password,
+            user_email=user_email,
+            message=msg.as_string(),
+            context=insecure_context,
+        )
     except smtplib.SMTPAuthenticationError as exc:
         raise RuntimeError(
             "SMTP authentication failed. Check SENDER_EMAIL and SENDER_EMAIL_PASSWORD."
@@ -176,43 +190,27 @@ def _build_otp_email_bodies(otp_code: str) -> tuple[str, str]:
     """
     return text_body, html_body
 
-
-def _send_resend_email(
-    resend_api_key: str,
-    from_email: str,
-    user_email: str,
-    text_body: str,
-    html_body: str,
-) -> None:
-    try:
-        response = requests.post(
-            "https://api.resend.com/emails",
-            headers={
-                "Authorization": f"Bearer {resend_api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "from": from_email,
-                "to": [user_email],
-                "subject": "MMSLLC Secure Admin Portal - Login Code",
-                "text": text_body,
-                "html": html_body,
-            },
-            timeout=15,
-        )
-        response.raise_for_status()
-    except requests.RequestException as exc:
-        details = exc.response.text if exc.response is not None else str(exc)
-        raise RuntimeError(f"Failed to send OTP email via Resend: {details}") from exc
-
-
 def _send_smtp_email(
+    smtp_host: str,
+    smtp_port: int,
+    smtp_use_ssl: bool,
+    smtp_starttls: bool,
     sender_email: str,
     sender_password: str,
     user_email: str,
     message: str,
     context: ssl.SSLContext,
 ) -> None:
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+    if smtp_use_ssl:
+        with smtplib.SMTP_SSL(smtp_host, smtp_port, context=context) as server:
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, user_email, message)
+        return
+
+    with smtplib.SMTP(smtp_host, smtp_port) as server:
+        server.ehlo()
+        if smtp_starttls:
+            server.starttls(context=context)
+            server.ehlo()
         server.login(sender_email, sender_password)
         server.sendmail(sender_email, user_email, message)
