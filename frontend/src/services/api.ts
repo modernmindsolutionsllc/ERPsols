@@ -807,5 +807,41 @@ export const bipReportingApi = {
 
     return await response.blob();
   },
+
+  uploadDataTemplate: async (
+    file: File,
+    moduleName: string,
+    businessObject: string,
+  ): Promise<{ message: string; id: number }> => {
+    let token: string | null = null;
+    try {
+      const saved = sessionStorage.getItem('migrateos_auth');
+      if (saved) token = JSON.parse(saved).token;
+    } catch { /* ignore */ }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('module_name', moduleName);
+    formData.append('business_object', businessObject);
+
+    const response = await fetch(
+      `${API_BASE_URL}/api/v1/templates/upload`,
+      {
+        method: 'POST',
+        headers: {
+          // Do NOT set Content-Type — browser sets multipart boundary automatically
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      }
+    );
+
+    if (!response.ok) {
+      const errDetail = await response.json().catch(() => ({}));
+      throw new Error(errDetail?.detail || 'Failed to upload template.');
+    }
+
+    return await response.json();
+  },
 };
 

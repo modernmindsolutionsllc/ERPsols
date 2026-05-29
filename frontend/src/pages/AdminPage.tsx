@@ -1,13 +1,14 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { adminApi, bipReportingApi, type BipReportResponse } from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
 import { formatActiveTime, formatLastActive } from '@/utils/formatters';
 import { toast } from 'sonner';
 import type { ACPUser, AdminTool, ApiError, ToolKey } from '@/types';
+import { DATA_LOADER_CONFIG } from '@/config/dataLoaderConfig';
 import {
   Search, Users, ShieldAlert, ShieldCheck, Clock, Filter, Loader2, RefreshCw,
-  KeyRound, Trash2, ArrowRight, PlusCircle, FileSpreadsheet, Lock, Pencil,
+  KeyRound, Trash2, ArrowRight, PlusCircle, FileSpreadsheet, Lock, Pencil, Upload,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -20,6 +21,9 @@ import {
 } from '@/components/ui/table';
 import { CreateBipReportModal } from '@/components/CreateBipReportModal';
 import { DASHBOARD_TOOLS } from '@/pages/DashboardPage';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from '@/components/ui/dialog';
 
 function formatDate(iso: string): string {
   try {
@@ -54,6 +58,18 @@ export function AdminPage() {
   const [reportSearchQuery, setReportSearchQuery] = useState('');
   const { user: currentUser, refreshUser } = useAuth();
   const [updatingRoleFor, setUpdatingRoleFor] = useState<string | null>(null);
+
+  // ── Upload Data Template state ──────────────────────────────────────────────
+  const templateFileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingTemplateFile, setPendingTemplateFile] = useState<File | null>(null);
+  const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false);
+  const [templateModule, setTemplateModule] = useState('');
+  const [templateObject, setTemplateObject] = useState('');
+  const [isUploadingTemplate, setIsUploadingTemplate] = useState(false);
+
+  // Derive available business objects from selected module
+  const selectedModuleConfig = DATA_LOADER_CONFIG.find(m => m.label === templateModule);
+  const availableObjects = selectedModuleConfig?.objects ?? [];
 
   async function handleRoleChange(userId: string, newRole: string) {
     setUpdatingRoleFor(userId);
@@ -220,6 +236,44 @@ export function AdminPage() {
 
   const myTools = DASHBOARD_TOOLS.filter(t => currentUser?.tool_access?.includes(t.key));
 
+  // ── Upload Data Template handlers ───────────────────────────────────────────
+  function handleTemplateFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const selected = e.target.files?.[0];
+    if (!selected) return;
+    if (!selected.name.toLowerCase().endsWith('.xlsx')) {
+      toast.error('Only .xlsx files are accepted.');
+      return;
+    }
+    setPendingTemplateFile(selected);
+    setTemplateModule('');
+    setTemplateObject('');
+    setIsTemplateDialogOpen(true);
+    // Reset the input so selecting the same file again triggers onChange
+    if (templateFileInputRef.current) templateFileInputRef.current.value = '';
+  }
+
+  async function handleUploadTemplate() {
+    if (!pendingTemplateFile || !templateModule || !templateObject) {
+      toast.error('Please select a module and business object.');
+      return;
+    }
+    setIsUploadingTemplate(true);
+    try {
+      const res = await bipReportingApi.uploadDataTemplate(
+        pendingTemplateFile,
+        templateModule,
+        templateObject,
+      );
+      toast.success(res.message);
+      setIsTemplateDialogOpen(false);
+      setPendingTemplateFile(null);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to upload template.');
+    } finally {
+      setIsUploadingTemplate(false);
+    }
+  }
+
   const filteredReportsList = reports.filter(report => {
     // Hide system/catalog-imported reports (only show custom reports added via 'Save SQL Report')
     if (
@@ -253,6 +307,22 @@ export function AdminPage() {
             <PlusCircle className="h-5 w-5" />
             Save SQL Report
           </Button>
+          <Button
+            variant="outline"
+            size="lg"
+            className="gap-2 border-[#185FA5]/30 text-[#185FA5] dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-500/10"
+            onClick={() => templateFileInputRef.current?.click()}
+          >
+            <Upload className="h-5 w-5" />
+            Upload Data Template
+          </Button>
+          <input
+            ref={templateFileInputRef}
+            type="file"
+            accept=".xlsx"
+            className="hidden"
+            onChange={handleTemplateFileSelect}
+          />
         </div>
       </div>
 
@@ -606,6 +676,85 @@ export function AdminPage() {
           void loadReports();
         }}
       />
+
+      {/* ══════ UPLOAD DATA TEMPLATE DIALOG ══════ */}
+      <Dialog open={isTemplateDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          setIsTemplateDialogOpen(false);
+          setPendingTemplateFile(null);
+        }
+      }}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <div className="mx-auto size-12 rounded-full flex items-center justify-center mb-2 bg-[#185FA5]/10">
+              <Upload className="text-[#185FA5]" size={22} />
+            </div>
+            <DialogTitle className="text-center text-lg">Upload Data Template</DialogTitle>
+            <DialogDescription className="text-center">
+              {pendingTemplateFile
+                ? `File: ${pendingTemplateFile.name} (${(pendingTemplateFile.size / 1024).toFixed(1)} KB)`
+                : 'Select the target module and business object for this template.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 mt-4">
+            {/* Module selector */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Module</label>
+              <select
+                value={templateModule}
+                onChange={(e) => {
+                  setTemplateModule(e.target.value);
+                  setTemplateObject('');
+                }}
+                className="h-10 w-full rounded-md border border-[#CBD5E1] dark:border-white/10 bg-white dark:bg-slate-900 px-3 text-sm text-[#0F172A] dark:text-slate-100 focus:border-[#185FA5] focus:outline-none focus:ring-4 focus:ring-[#185FA5]/15"
+              >
+                <option value="">Select a module...</option>
+                {DATA_LOADER_CONFIG.filter(m => m.objects.length > 0).map(m => (
+                  <option key={m.key} value={m.label}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Business Object selector */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Business Object</label>
+              <select
+                value={templateObject}
+                onChange={(e) => setTemplateObject(e.target.value)}
+                disabled={!templateModule}
+                className="h-10 w-full rounded-md border border-[#CBD5E1] dark:border-white/10 bg-white dark:bg-slate-900 px-3 text-sm text-[#0F172A] dark:text-slate-100 focus:border-[#185FA5] focus:outline-none focus:ring-4 focus:ring-[#185FA5]/15 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <option value="">{templateModule ? 'Select a business object...' : 'Select a module first'}</option>
+                {availableObjects.map(obj => (
+                  <option key={obj.key} value={obj.label}>{obj.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 mt-6">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsTemplateDialogOpen(false);
+                setPendingTemplateFile(null);
+              }}
+              disabled={isUploadingTemplate}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleUploadTemplate}
+              disabled={!templateModule || !templateObject || isUploadingTemplate}
+              className="gap-2 bg-[#185FA5] hover:bg-[#124A82] text-white"
+            >
+              {isUploadingTemplate ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
+              {isUploadingTemplate ? 'Uploading...' : 'Upload Template'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
