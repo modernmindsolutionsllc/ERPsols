@@ -74,8 +74,32 @@ export function UniversalETLScreen({ module, object, onBack }: UniversalETLScree
 
       // Dynamically generate HDL mapping configuration from columns
       const config: Array<{ ColumnOrder: string; HDL: string | null; InputColumnName: string | null }> = [];
+      
+      // 1. Add Operational Metadata/Merge prefixes and Object Label dynamically
+      config.push({
+        ColumnOrder: 'A1',
+        HDL: 'METADATA',
+        InputColumnName: null,
+      });
+      config.push({
+        ColumnOrder: 'A2',
+        HDL: object.label,
+        InputColumnName: null,
+      });
+      config.push({
+        ColumnOrder: 'B1',
+        HDL: 'MERGE',
+        InputColumnName: null,
+      });
+      config.push({
+        ColumnOrder: 'B2',
+        HDL: object.label,
+        InputColumnName: null,
+      });
+
+      // 2. Add spreadsheet column headers mapping starting from index 3
       dynamicEntities.forEach((name, index) => {
-        const id = index + 1;
+        const id = index + 3;
         config.push({
           ColumnOrder: `A${id}`,
           HDL: name,
@@ -89,7 +113,7 @@ export function UniversalETLScreen({ module, object, onBack }: UniversalETLScree
       });
       setMappingConfig(config);
     }
-  }, [dynamicEntities]);
+  }, [dynamicEntities, object.label]);
 
   const stepIndex = STEPS.findIndex(s => s.key === currentStep);
   const successPercentage = Math.round((passedRecords / totalRecords) * 100);
@@ -199,18 +223,26 @@ export function UniversalETLScreen({ module, object, onBack }: UniversalETLScree
     }
 
     try {
-      // 1. The METADATA Line (Headers):
-      const metadataRules = mappingConfig
+      // 1. Build the 'A' Series Line (Headers):
+      const aRules = mappingConfig
         .filter(rule => rule.ColumnOrder.startsWith('A'))
         .sort((a, b) => {
           const numA = parseInt(a.ColumnOrder.slice(1), 10);
           const numB = parseInt(b.ColumnOrder.slice(1), 10);
           return numA - numB;
         });
-      const metadataLine = "METADATA|" + name + "|" + metadataRules.map(r => r.HDL).join('|');
 
-      // 2. The MERGE Lines (Data Rows):
-      const mergeRules = mappingConfig
+      const aLine = aRules
+        .map(rule => {
+          if (rule.HDL && rule.HDL.toUpperCase() !== 'NULL') {
+            return rule.HDL;
+          }
+          return rule.InputColumnName ?? '';
+        })
+        .join('|');
+
+      // 2. Build the 'B' Series Lines (Data Rows):
+      const bRules = mappingConfig
         .filter(rule => rule.ColumnOrder.startsWith('B'))
         .sort((a, b) => {
           const numA = parseInt(a.ColumnOrder.slice(1), 10);
@@ -218,19 +250,23 @@ export function UniversalETLScreen({ module, object, onBack }: UniversalETLScree
           return numA - numB;
         });
 
-      const mergeLines = excelData.map(row => {
-        const rowValues = mergeRules.map(rule => {
-          if (rule.HDL && rule.HDL !== 'NULL') {
+      const bLines = excelData.map(row => {
+        const rowValues = bRules.map(rule => {
+          if (rule.HDL && rule.HDL.toUpperCase() !== 'NULL') {
             return rule.HDL;
           }
           const key = rule.InputColumnName;
-          return key ? String(row[key] ?? '') : '';
+          if (key) {
+            const val = row[key];
+            return val !== undefined && val !== null ? String(val) : '';
+          }
+          return '';
         });
-        return "MERGE|" + name + "|" + rowValues.join('|');
+        return rowValues.join('|');
       });
 
-      // Combine METADATA and MERGE lines
-      const combinedTextContent = [metadataLine, ...mergeLines].join('\n');
+      // Combine 'A' line and 'B' lines
+      const combinedTextContent = [aLine, ...bLines].join('\n');
 
       // 3. The Zipper (JSZip Integration):
       const zip = new JSZip();
