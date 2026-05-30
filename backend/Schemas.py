@@ -292,7 +292,7 @@ class BipReportCreate(BaseModel):
     @field_validator("module")
     @classmethod
     def validate_module_value(cls, v: str) -> str:
-        allowed = ["Core HR", "Payroll", "Benefits", "Talent", "Absence", "OTL", "Setup"]
+        allowed = ["Core HR", "Payroll", "Benefits", "Talent", "Absence", "OTL", "Setup", "ORC"]
         if v not in allowed:
             raise ValueError(f"Module must be one of: {', '.join(allowed)}")
         return v
@@ -314,7 +314,7 @@ class BipReportUpdate(BaseModel):
     @field_validator("module")
     @classmethod
     def validate_module_value(cls, v: str) -> str:
-        allowed = ["Core HR", "Payroll", "Benefits", "Talent", "Absence", "OTL", "Setup"]
+        allowed = ["Core HR", "Payroll", "Benefits", "Talent", "Absence", "OTL", "Setup", "ORC"]
         if v not in allowed:
             raise ValueError(f"Module must be one of: {', '.join(allowed)}")
         return v

@@ -132,6 +132,7 @@ export function CreateBipReportModal({
                 <SelectItem value="Absence">Absence</SelectItem>
                 <SelectItem value="OTL">OTL</SelectItem>
                 <SelectItem value="Setup">Setup</SelectItem>
+                <SelectItem value="ORC">ORC</SelectItem>
               </SelectContent>
             </Select>
           </div>

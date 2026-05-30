@@ -12,7 +12,7 @@
 import { useState, useCallback, useRef } from 'react';
 import {
   Upload, CheckCircle2, FileSpreadsheet, Loader2,
-  ArrowLeft, AlertCircle, Table2, Rocket, X, FileUp,
+  ArrowLeft, AlertCircle, Rocket, X, FileUp, Download,
 } from 'lucide-react';
 import type { ModuleConfig, BusinessObject } from '@/config/dataLoaderConfig';
 
@@ -22,31 +22,15 @@ interface UniversalETLScreenProps {
   onBack: () => void;
 }
 
-type ETLStep = 'upload' | 'validate' | 'preview' | 'load';
+type ETLStep = 'upload' | 'validate' | 'load';
 
 const STEPS: { key: ETLStep; label: string; icon: typeof Upload }[] = [
   { key: 'upload', label: 'Extract / Upload', icon: Upload },
   { key: 'validate', label: 'Validate', icon: CheckCircle2 },
-  { key: 'preview', label: 'Preview Data', icon: Table2 },
   { key: 'load', label: 'Load to Oracle', icon: Rocket },
 ];
 
-// Mock preview data generator
-function generateMockData(objectLabel: string): { headers: string[]; rows: string[][] } {
-  const templates: Record<string, { headers: string[]; rows: string[][] }> = {
-    default: {
-      headers: ['Row #', 'Record ID', 'Name', 'Status', 'Effective Date'],
-      rows: [
-        ['1', 'REC-001', 'John Smith', 'Active', '2024-01-15'],
-        ['2', 'REC-002', 'Maria Garcia', 'Active', '2024-02-01'],
-        ['3', 'REC-003', 'James Wilson', 'Pending', '2024-03-10'],
-        ['4', 'REC-004', 'Sarah Johnson', 'Active', '2024-03-15'],
-        ['5', 'REC-005', 'Robert Chen', 'Active', '2024-04-01'],
-      ],
-    },
-  };
-  return templates[objectLabel] || templates.default;
-}
+
 
 export function UniversalETLScreen({ module, object, onBack }: UniversalETLScreenProps) {
   const [currentStep, setCurrentStep] = useState<ETLStep>('upload');
@@ -57,9 +41,12 @@ export function UniversalETLScreen({ module, object, onBack }: UniversalETLScree
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployResult, setDeployResult] = useState<'success' | null>(null);
+  const [totalRecords] = useState(5);
+  const [passedRecords] = useState(5);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const stepIndex = STEPS.findIndex(s => s.key === currentStep);
+  const successPercentage = Math.round((passedRecords / totalRecords) * 100);
 
   // ── Drag & Drop handlers ──
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -120,8 +107,9 @@ export function UniversalETLScreen({ module, object, onBack }: UniversalETLScree
     setIsValidating(false);
   }, []);
 
-  const handlePreview = useCallback(() => {
-    setCurrentStep('preview');
+  const handleDownloadReport = useCallback(() => {
+    console.log('Downloading validation report...');
+    alert('Download Validation Report: Report generated successfully.');
   }, []);
 
   const handleDeploy = useCallback(async () => {
@@ -140,7 +128,6 @@ export function UniversalETLScreen({ module, object, onBack }: UniversalETLScree
     setDeployResult(null);
   }, []);
 
-  const mockData = generateMockData(object.label);
   const ObjectIcon = object.icon;
 
   return (
@@ -348,24 +335,23 @@ export function UniversalETLScreen({ module, object, onBack }: UniversalETLScree
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">Validation Passed</p>
-                    <p className="text-xs text-emerald-600 dark:text-emerald-400">All 5 records passed schema checks. No errors found.</p>
+                    <p className="text-xs text-emerald-600 dark:text-emerald-400">{successPercentage}% of records passed schema checks. No errors found.</p>
                   </div>
                 </div>
                 <div className="flex gap-3 mt-6">
                   <button
-                    onClick={handlePreview}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white transition-all hover:shadow-lg bg-slate-700 hover:bg-slate-800 dark:bg-slate-600 dark:hover:bg-slate-500"
+                    onClick={handleDownloadReport}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-white/15 hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-all hover:shadow-md"
                   >
-                    <Table2 size={16} />
-                    Preview Data
+                    <Download size={16} />
+                    Download Validation Report
                   </button>
                   <button
                     onClick={handleDeploy}
                     className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white transition-all hover:shadow-lg"
                     style={{ background: module.accentColor }}
                   >
-                    <Rocket size={16} />
-                    Deploy to Oracle
+                    Next
                   </button>
                 </div>
               </div>
@@ -402,54 +388,7 @@ export function UniversalETLScreen({ module, object, onBack }: UniversalETLScree
           </div>
         )}
 
-        {/* STEP 3: Preview */}
-        {currentStep === 'preview' && (
-          <div className="p-8">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">
-                  Data Preview
-                </h2>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Showing {mockData.rows.length} records from <strong>{file?.name}</strong>
-                </p>
-              </div>
-              <button
-                onClick={handleDeploy}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white transition-all hover:shadow-lg"
-                style={{ background: module.accentColor }}
-              >
-                <Rocket size={16} />
-                Deploy to Oracle
-              </button>
-            </div>
 
-            <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-white/10">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-slate-50 dark:bg-slate-800/80">
-                    {mockData.headers.map(h => (
-                      <th key={h} className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                  {mockData.rows.map((row, ri) => (
-                    <tr key={ri} className="hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors">
-                      {row.map((cell, ci) => (
-                        <td key={ci} className="px-4 py-3 text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                          {cell}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
 
         {/* STEP 4: Load to Oracle */}
         {currentStep === 'load' && (
