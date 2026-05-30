@@ -15,6 +15,13 @@ import {
   ArrowLeft, AlertCircle, Rocket, X, FileUp, Download,
 } from 'lucide-react';
 import type { ModuleConfig, BusinessObject } from '@/config/dataLoaderConfig';
+import { toast } from 'sonner';
+
+interface Entity {
+  id: string;
+  name: string;
+  lifecycleState: 'pending' | 'prepared' | 'submitted';
+}
 
 interface UniversalETLScreenProps {
   module: ModuleConfig;
@@ -39,10 +46,14 @@ export function UniversalETLScreen({ module, object, onBack }: UniversalETLScree
   const [isValidating, setIsValidating] = useState(false);
   const [validationResult, setValidationResult] = useState<'success' | 'error' | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
-  const [isDeploying, setIsDeploying] = useState(false);
-  const [deployResult, setDeployResult] = useState<'success' | null>(null);
   const [totalRecords] = useState(5);
   const [passedRecords] = useState(5);
+  const [entities, setEntities] = useState<Entity[]>([
+    { id: 'location', name: 'Location', lifecycleState: 'pending' },
+    { id: 'job', name: 'Job', lifecycleState: 'pending' },
+    { id: 'department', name: 'Department', lifecycleState: 'pending' },
+    { id: 'grade', name: 'Grade', lifecycleState: 'pending' },
+  ]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const stepIndex = STEPS.findIndex(s => s.key === currentStep);
@@ -112,12 +123,22 @@ export function UniversalETLScreen({ module, object, onBack }: UniversalETLScree
     alert('Download Validation Report: Report generated successfully.');
   }, []);
 
-  const handleDeploy = useCallback(async () => {
-    setIsDeploying(true);
+  const handleDeploy = useCallback(() => {
     setCurrentStep('load');
-    await new Promise(r => setTimeout(r, 3000));
-    setDeployResult('success');
-    setIsDeploying(false);
+  }, []);
+
+  const handlePrepare = useCallback((id: string) => {
+    setEntities(prev => prev.map(e => e.id === id ? { ...e, lifecycleState: 'prepared' } : e));
+    toast.success(`Entity prepared successfully.`);
+  }, []);
+
+  const handleSubmit = useCallback((id: string) => {
+    setEntities(prev => prev.map(e => e.id === id ? { ...e, lifecycleState: 'submitted' } : e));
+    toast.success(`Entity submitted to Oracle HCM Cloud successfully.`);
+  }, []);
+
+  const handleViewStatus = useCallback((id: string) => {
+    toast.info(`Viewing status logs for entity: ${id}`);
   }, []);
 
   const handleReset = useCallback(() => {
@@ -125,7 +146,12 @@ export function UniversalETLScreen({ module, object, onBack }: UniversalETLScree
     setCurrentStep('upload');
     setValidationResult(null);
     setValidationErrors([]);
-    setDeployResult(null);
+    setEntities([
+      { id: 'location', name: 'Location', lifecycleState: 'pending' },
+      { id: 'job', name: 'Job', lifecycleState: 'pending' },
+      { id: 'department', name: 'Department', lifecycleState: 'pending' },
+      { id: 'grade', name: 'Grade', lifecycleState: 'pending' },
+    ]);
   }, []);
 
   const ObjectIcon = object.icon;
@@ -390,53 +416,122 @@ export function UniversalETLScreen({ module, object, onBack }: UniversalETLScree
 
 
 
-        {/* STEP 4: Load to Oracle */}
+        {/* STEP 3: Load to Oracle (Entity Lifecycle Management) */}
         {currentStep === 'load' && (
           <div className="p-8">
-            <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">
-              Deploy to Oracle
-            </h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
-              Loading validated data into Oracle HCM Cloud for <strong>{module.label} &mdash; {object.label}</strong>.
-            </p>
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900 dark:text-white leading-tight">
+                  Deploy & Load to Oracle Cloud
+                </h2>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                  Perform granular lifecycle management for all target HCM entities.
+                </p>
+              </div>
+              <button
+                onClick={handleReset}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all hover:shadow-sm"
+              >
+                <Upload size={14} />
+                Upload Another File
+              </button>
+            </div>
 
-            {isDeploying && (
-              <div className="flex flex-col items-center py-12 gap-4">
-                <div className="relative">
-                  <Loader2 size={48} className="animate-spin" style={{ color: module.accentColor }} />
-                  <Rocket size={18} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white" />
-                </div>
-                <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Deploying records to Oracle Cloud...</p>
-                <div className="w-72 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                  <div
-                    style={{ width: '100%', background: module.accentColor, transition: 'width 3000ms ease-out' }}
-                  />
+            <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-white/10 rounded-xl p-6 shadow-sm">
+              <div className="flex flex-col gap-4 border-b border-slate-100 dark:border-white/5 pb-4 mb-4">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                    Workforce Structure
+                  </h3>
+                  <div className="mt-2 inline-flex items-start gap-2.5 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-800/30 rounded-lg p-3 max-w-[650px] leading-relaxed">
+                    <AlertCircle size={16} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-500" />
+                    <span>
+                      Manage the HCM Data Loader lifecycle for each entity. Please load the objects in the displayed order to prevent data dependency errors.
+                    </span>
+                  </div>
                 </div>
               </div>
-            )}
 
-            {deployResult === 'success' && (
-              <div className="rounded-xl border border-emerald-200 dark:border-emerald-800/50 bg-emerald-50 dark:bg-emerald-950/20 p-6 text-center">
-                <div className="flex flex-col items-center gap-3">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30">
-                    <CheckCircle2 size={30} className="text-emerald-600" />
-                  </div>
-                  <div>
-                    <p className="text-base font-bold text-emerald-800 dark:text-emerald-300">Deployment Successful!</p>
-                    <p className="text-sm text-emerald-600 dark:text-emerald-400 mt-1">
-                      5 records loaded into Oracle HCM Cloud.
-                    </p>
-                  </div>
-                  <button
-                    onClick={handleReset}
-                    className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white transition-all hover:shadow-lg bg-emerald-600 hover:bg-emerald-700"
-                  >
-                    <Upload size={16} />
-                    Upload Another File
-                  </button>
-                </div>
+              <div className="space-y-1">
+                {entities.map((entity, index) => {
+                  const isPending = entity.lifecycleState === 'pending';
+                  const isPrepared = entity.lifecycleState === 'prepared';
+                  const isSubmitted = entity.lifecycleState === 'submitted';
+
+                  return (
+                    <div
+                      key={entity.id}
+                      className="flex justify-between items-center py-4 border-b border-slate-100 dark:border-white/5 last:border-0 hover:bg-slate-50 dark:hover:bg-white/[0.01] px-4 rounded-lg transition-colors animate-fade-in"
+                    >
+                      {/* Left Side: Index + Name */}
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-mono text-slate-400 dark:text-slate-500">
+                          {(index + 1).toString().padStart(2, '0')}
+                        </span>
+                        <span className="font-semibold text-slate-800 dark:text-slate-200">
+                          {entity.name}
+                        </span>
+                      </div>
+
+                      {/* Right Side: Button Group */}
+                      <div className="flex items-center gap-3">
+                        {/* Prepare Button */}
+                        <button
+                          onClick={() => handlePrepare(entity.id)}
+                          disabled={!isPending}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all duration-200 ${
+                            isPending
+                              ? 'border-slate-300 dark:border-white/15 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50 shadow-sm'
+                              : 'border-emerald-200/50 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 cursor-default'
+                          }`}
+                        >
+                          {isPending ? (
+                            'Prepare'
+                          ) : (
+                            <>
+                              <CheckCircle2 size={12} />
+                              Prepared
+                            </>
+                          )}
+                        </button>
+
+                        {/* Submit Button */}
+                        <button
+                          onClick={() => handleSubmit(entity.id)}
+                          disabled={!isPrepared}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
+                            isPrepared
+                              ? 'text-white shadow-md shadow-emerald-500/20 hover:brightness-110'
+                              : isSubmitted
+                                ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-default'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
+                          }`}
+                          style={{
+                            background: isPrepared ? module.accentColor : undefined,
+                          }}
+                        >
+                          {isSubmitted ? 'Submitted' : 'Submit'}
+                        </button>
+
+                        {/* Status Button/Badge */}
+                        <button
+                          onClick={() => handleViewStatus(entity.id)}
+                          className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors duration-200 ${
+                            isSubmitted
+                              ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/30'
+                              : isPrepared
+                                ? 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700/50'
+                          }`}
+                        >
+                          <span>Status Log</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            )}
+            </div>
           </div>
         )}
       </div>
