@@ -9,13 +9,14 @@
  * No separate files per object — just pass different props.
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   Upload, CheckCircle2, FileSpreadsheet, Loader2,
   ArrowLeft, AlertCircle, Rocket, X, FileUp, Download,
 } from 'lucide-react';
 import type { ModuleConfig, BusinessObject } from '@/config/dataLoaderConfig';
 import { toast } from 'sonner';
+import * as XLSX from 'xlsx';
 
 interface Entity {
   id: string;
@@ -48,6 +49,7 @@ export function UniversalETLScreen({ module, object, onBack }: UniversalETLScree
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [totalRecords] = useState(5);
   const [passedRecords] = useState(5);
+  const [dynamicEntities, setDynamicEntities] = useState<string[]>([]);
   const [entities, setEntities] = useState<Entity[]>([
     { id: 'location', name: 'Location', lifecycleState: 'pending' },
     { id: 'job', name: 'Job', lifecycleState: 'pending' },
@@ -55,6 +57,18 @@ export function UniversalETLScreen({ module, object, onBack }: UniversalETLScree
     { id: 'grade', name: 'Grade', lifecycleState: 'pending' },
   ]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (dynamicEntities.length > 0) {
+      setEntities(
+        dynamicEntities.map(name => ({
+          id: name.toLowerCase().replace(/\s+/g, '_'),
+          name: name,
+          lifecycleState: 'pending',
+        }))
+      );
+    }
+  }, [dynamicEntities]);
 
   const stepIndex = STEPS.findIndex(s => s.key === currentStep);
   const successPercentage = Math.round((passedRecords / totalRecords) * 100);
@@ -108,6 +122,31 @@ export function UniversalETLScreen({ module, object, onBack }: UniversalETLScree
     if (success) {
       setValidationResult('success');
       setValidationErrors([]);
+
+      // Extract sheet names from Excel file locally using xlsx
+      if (file) {
+        try {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const data = e.target?.result;
+            if (data) {
+              const workbook = XLSX.read(data, { type: 'array' });
+              // Filter out default or empty sheets
+              const sheetNames = workbook.SheetNames.filter(
+                name => !name.toLowerCase().includes('sheet')
+              );
+              const finalSheets = sheetNames.length > 0 ? sheetNames : workbook.SheetNames;
+              setDynamicEntities(finalSheets);
+            }
+          };
+          reader.readAsArrayBuffer(file);
+        } catch (err) {
+          console.error("Error reading xlsx sheet names:", err);
+          setDynamicEntities(['Location', 'Job', 'Department', 'Grade']);
+        }
+      } else {
+        setDynamicEntities(['Location', 'Job', 'Department', 'Grade']);
+      }
     } else {
       setValidationResult('error');
       setValidationErrors([
@@ -116,7 +155,7 @@ export function UniversalETLScreen({ module, object, onBack }: UniversalETLScree
       ]);
     }
     setIsValidating(false);
-  }, []);
+  }, [file]);
 
   const handleDownloadReport = useCallback(() => {
     console.log('Downloading validation report...');
@@ -146,6 +185,7 @@ export function UniversalETLScreen({ module, object, onBack }: UniversalETLScree
     setCurrentStep('upload');
     setValidationResult(null);
     setValidationErrors([]);
+    setDynamicEntities([]);
     setEntities([
       { id: 'location', name: 'Location', lifecycleState: 'pending' },
       { id: 'job', name: 'Job', lifecycleState: 'pending' },
